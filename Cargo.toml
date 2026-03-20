@@ -1,0 +1,46 @@
+[package]
+name = "gatekeeper"
+version = "0.1.0"
+edition = "2021"
+description = "Opinionated domain-allowlist HTTP proxy with mTLS client authentication"
+
+[[bin]]
+name = "gatekeeper"
+path = "src/main.rs"
+
+[lib]
+name = "gatekeeper"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+hyper = { version = "1", features = ["http1", "server", "client"] }
+hyper-util = { version = "0.1", features = ["tokio", "client", "client-legacy", "http1"] }
+http-body-util = "0.1"
+tokio-rustls = "0.26"
+rustls = { version = "0.23", features = ["ring"], default-features = false }
+rustls-pemfile = "2"
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+clap = { version = "4", features = ["derive"] }
+tokio-stream = "0.1"
+bytes = "1"
+futures-util = "0.3"
+arc-swap = "1"
+anyhow = "1"
+libc = "0.2"
+
+[dev-dependencies]
+rcgen = { version = "0.13", features = ["pem"] }
+tokio = { version = "1", features = ["full"] }
+hyper = { version = "1", features = ["http1", "client"] }
+hyper-util = { version = "0.1", features = ["tokio", "client", "client-legacy", "http1"] }
+http-body-util = "0.1"
+rustls = { version = "0.23", features = ["ring"], default-features = false }
+rustls-pemfile = "2"
+tokio-rustls = "0.26"
+anyhow = "1"
+arc-swap = "1"
+futures-util = "0.3"
