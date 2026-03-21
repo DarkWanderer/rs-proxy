@@ -205,6 +205,13 @@ fn adv_connect_colon_only() {
 }
 
 #[test]
+fn adv_connect_empty_host_rejected() {
+    // ":443" has no host — must be rejected to prevent bypass attempts
+    assert!(parse_connect_authority(":443").is_none());
+    assert!(parse_connect_authority(":80").is_none());
+}
+
+#[test]
 fn adv_connect_port_overflow() {
     // 65536 exceeds u16::MAX
     assert!(parse_connect_authority("example.com:65536").is_none());

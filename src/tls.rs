@@ -74,6 +74,34 @@ pub fn extract_client_cn(conn: &rustls::ServerConnection) -> Option<String> {
     extract_cn_from_der(cert.as_ref())
 }
 
+/// Parse an ASN.1 DER length field starting at `der[pos]`.
+/// Returns `(length_value, number_of_bytes_consumed)` or `None` on error.
+fn parse_der_length(der: &[u8], pos: usize) -> Option<(usize, usize)> {
+    if pos >= der.len() {
+        return None;
+    }
+    let first = der[pos] as usize;
+    if first < 0x80 {
+        // Short form: length fits in 7 bits
+        Some((first, 1))
+    } else if first == 0x80 {
+        // Indefinite length — not valid in DER
+        None
+    } else {
+        // Long form: first byte encodes number of subsequent length bytes
+        let num_bytes = first & 0x7F;
+        if num_bytes > 4 || pos + 1 + num_bytes > der.len() {
+            return None;
+        }
+        let mut length: usize = 0;
+        for i in 0..num_bytes {
+            length = length.checked_shl(8)?;
+            length = length.checked_add(der[pos + 1 + i] as usize)?;
+        }
+        Some((length, 1 + num_bytes))
+    }
+}
+
 fn extract_cn_from_der(der: &[u8]) -> Option<String> {
     // Simple ASN.1 DER parser to extract CN from Subject
     // We look for the CN OID: 2.5.4.3 = 55 04 03
@@ -83,14 +111,16 @@ fn extract_cn_from_der(der: &[u8]) -> Option<String> {
         if &der[i..i + cn_oid.len()] == cn_oid {
             // Found CN OID. Next bytes: tag (0x0c UTF8String or 0x13 PrintableString), length, value
             let tag_pos = i + cn_oid.len();
-            if tag_pos + 2 <= der.len() {
-                let len = der[tag_pos + 1] as usize;
-                let val_start = tag_pos + 2;
-                let val_end = val_start + len;
-                if val_end <= der.len() {
-                    return std::str::from_utf8(&der[val_start..val_end])
-                        .ok()
-                        .map(|s| s.to_string());
+            if tag_pos < der.len() {
+                // Parse length using proper DER length decoding (handles multi-byte lengths)
+                if let Some((len, len_bytes)) = parse_der_length(der, tag_pos + 1) {
+                    let val_start = tag_pos + 1 + len_bytes;
+                    let val_end = val_start + len;
+                    if val_end <= der.len() {
+                        return std::str::from_utf8(&der[val_start..val_end])
+                            .ok()
+                            .map(|s| s.to_string());
+                    }
                 }
             }
         }
