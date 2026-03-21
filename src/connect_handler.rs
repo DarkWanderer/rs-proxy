@@ -19,3 +19,92 @@ pub fn parse_connect_authority(authority: &str) -> Option<(String, u16)> {
     }
     Some((host, port))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valid_host_and_port() {
+        let r = parse_connect_authority("example.com:443").unwrap();
+        assert_eq!(r.0, "example.com");
+        assert_eq!(r.1, 443);
+    }
+
+    #[test]
+    fn valid_ipv6_and_port() {
+        let r = parse_connect_authority("[::1]:8443").unwrap();
+        assert_eq!(r.0, "::1");
+        assert_eq!(r.1, 8443);
+    }
+
+    #[test]
+    fn valid_ipv6_full_address() {
+        let r = parse_connect_authority("[2001:db8::1]:443").unwrap();
+        assert_eq!(r.0, "2001:db8::1");
+        assert_eq!(r.1, 443);
+    }
+
+    #[test]
+    fn missing_port_returns_none() {
+        assert!(parse_connect_authority("example.com").is_none());
+    }
+
+    #[test]
+    fn empty_host_returns_none() {
+        assert!(parse_connect_authority(":443").is_none());
+        assert!(parse_connect_authority(":80").is_none());
+    }
+
+    #[test]
+    fn port_overflow_returns_none() {
+        assert!(parse_connect_authority("example.com:65536").is_none());
+    }
+
+    #[test]
+    fn non_numeric_port_returns_none() {
+        assert!(parse_connect_authority("example.com:abc").is_none());
+        assert!(parse_connect_authority("example.com:").is_none());
+    }
+
+    #[test]
+    fn ipv6_missing_close_bracket_returns_none() {
+        assert!(parse_connect_authority("[::1:443").is_none());
+    }
+
+    #[test]
+    fn ipv6_no_port_returns_none() {
+        assert!(parse_connect_authority("[::1]").is_none());
+    }
+
+    #[test]
+    fn ipv6_empty_brackets_returns_none() {
+        assert!(parse_connect_authority("[]:443").is_none());
+    }
+
+    #[test]
+    fn port_zero_is_valid() {
+        let r = parse_connect_authority("example.com:0").unwrap();
+        assert_eq!(r.0, "example.com");
+        assert_eq!(r.1, 0);
+    }
+
+    #[test]
+    fn port_max_valid() {
+        let r = parse_connect_authority("example.com:65535").unwrap();
+        assert_eq!(r.1, 65535);
+    }
+
+    #[test]
+    fn empty_string_returns_none() {
+        assert!(parse_connect_authority("").is_none());
+    }
+
+    #[test]
+    fn subpath_in_host_parsed_into_host() {
+        // rsplitn on ':' means "user@example.com:443" → host = "user@example.com"
+        let r = parse_connect_authority("user@example.com:443").unwrap();
+        assert_eq!(r.0, "user@example.com");
+        assert_eq!(r.1, 443);
+    }
+}

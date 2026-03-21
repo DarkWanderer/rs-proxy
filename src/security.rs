@@ -137,4 +137,127 @@ mod tests {
         assert!(!is_allowed_connect_port(25));
         assert!(!is_allowed_connect_port(80));
     }
+
+    #[test]
+    fn disallowed_connect_port_edge_cases() {
+        assert!(!is_allowed_connect_port(0));
+        assert!(!is_allowed_connect_port(8080));
+        assert!(!is_allowed_connect_port(65535));
+    }
+
+    #[test]
+    fn private_ipv4_broadcast() {
+        assert!(is_private_ip("255.255.255.255".parse().unwrap()));
+    }
+
+    #[test]
+    fn private_ipv4_unspecified() {
+        assert!(is_private_ip("0.0.0.0".parse().unwrap()));
+    }
+
+    #[test]
+    fn private_ipv4_iana_special() {
+        assert!(is_private_ip("192.0.0.1".parse().unwrap()));
+        assert!(is_private_ip("192.0.0.255".parse().unwrap()));
+    }
+
+    #[test]
+    fn private_ipv4_benchmarking() {
+        assert!(is_private_ip("198.18.0.1".parse().unwrap()));
+        assert!(is_private_ip("198.19.255.255".parse().unwrap()));
+    }
+
+    #[test]
+    fn private_ipv4_cgnat_edges() {
+        // Bottom and top of CGNAT range (100.64/10 = 100.64.0.0 – 100.127.255.255)
+        assert!(is_private_ip("100.64.0.0".parse().unwrap()));
+        assert!(is_private_ip("100.127.255.255".parse().unwrap()));
+        // Just outside: 100.128.0.0 is public
+        assert!(!is_private_ip("100.128.0.0".parse().unwrap()));
+    }
+
+    #[test]
+    fn private_ipv4_just_outside_rfc1918() {
+        // 172.15.x is NOT private (172.16-172.31 is private)
+        assert!(!is_private_ip("172.15.255.255".parse().unwrap()));
+        // 172.32.x is NOT private
+        assert!(!is_private_ip("172.32.0.0".parse().unwrap()));
+    }
+
+    #[test]
+    fn private_ipv6_unspecified() {
+        assert!(is_private_ip("::".parse().unwrap()));
+    }
+
+    #[test]
+    fn private_ipv6_link_local() {
+        assert!(is_private_ip("fe80::1".parse().unwrap()));
+        // fe80::/10 covers fe80:: through febf::
+        assert!(is_private_ip("febf::1".parse().unwrap()));
+    }
+
+    #[test]
+    fn private_ipv6_ula_fc_prefix() {
+        // fc00::/7 covers fc00:: through fdff::, test fc prefix specifically
+        assert!(is_private_ip("fc00::1".parse().unwrap()));
+        assert!(is_private_ip("fc80::1".parse().unwrap()));
+    }
+
+    #[test]
+    fn private_ipv6_mapped_rfc1918() {
+        // ::ffff:172.16.0.1 — mapped private IPv4
+        assert!(is_private_ip("::ffff:172.16.0.1".parse().unwrap()));
+        assert!(is_private_ip("::ffff:192.168.0.1".parse().unwrap()));
+    }
+
+    #[test]
+    fn public_ipv6_global_unicast() {
+        assert!(!is_private_ip("2606:4700:4700::1111".parse().unwrap()));
+        assert!(!is_private_ip("2001:4860:4860::8844".parse().unwrap()));
+    }
+
+    #[test]
+    fn js_escape_backslash() {
+        assert_eq!(escape_js("back\\slash"), "back\\\\slash");
+    }
+
+    #[test]
+    fn js_escape_single_quote() {
+        assert_eq!(escape_js("it's"), "it\\'s");
+    }
+
+    #[test]
+    fn js_escape_double_quote() {
+        assert_eq!(escape_js("say \"hi\""), "say \\\"hi\\\"");
+    }
+
+    #[test]
+    fn js_escape_newlines() {
+        assert_eq!(escape_js("line1\nline2\r"), "line1\\nline2\\r");
+    }
+
+    #[test]
+    fn js_escape_control_char() {
+        // ASCII BEL (0x07) is a control character → should become \u0007
+        let result = escape_js("\x07");
+        assert!(result.starts_with("\\u"));
+    }
+
+    #[test]
+    fn js_escape_passthrough_normal() {
+        assert_eq!(
+            escape_js("hello-world.example.com:3128"),
+            "hello-world.example.com:3128"
+        );
+    }
+
+    #[test]
+    fn js_escape_angle_brackets() {
+        assert_eq!(escape_js("<>"), "\\x3c\\x3e");
+    }
+
+    #[test]
+    fn js_escape_empty_string() {
+        assert_eq!(escape_js(""), "");
+    }
 }

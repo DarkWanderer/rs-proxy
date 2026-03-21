@@ -128,3 +128,149 @@ fn extract_cn_from_der(der: &[u8]) -> Option<String> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── parse_der_length ──────────────────────────────────────────────────────
+
+    #[test]
+    fn der_length_short_form() {
+        // First byte < 0x80 means the length fits in 7 bits
+        let data = &[0x05u8];
+        let (len, consumed) = parse_der_length(data, 0).unwrap();
+        assert_eq!(len, 5);
+        assert_eq!(consumed, 1);
+    }
+
+    #[test]
+    fn der_length_zero() {
+        let data = &[0x00u8];
+        let (len, consumed) = parse_der_length(data, 0).unwrap();
+        assert_eq!(len, 0);
+        assert_eq!(consumed, 1);
+    }
+
+    #[test]
+    fn der_length_max_short_form() {
+        // 0x7F = 127
+        let data = &[0x7Fu8];
+        let (len, consumed) = parse_der_length(data, 0).unwrap();
+        assert_eq!(len, 127);
+        assert_eq!(consumed, 1);
+    }
+
+    #[test]
+    fn der_length_long_form_one_byte() {
+        // 0x81 means "one byte follows for the length"
+        let data = &[0x81u8, 0xC8u8]; // length = 200
+        let (len, consumed) = parse_der_length(data, 0).unwrap();
+        assert_eq!(len, 200);
+        assert_eq!(consumed, 2);
+    }
+
+    #[test]
+    fn der_length_long_form_two_bytes() {
+        // 0x82 means "two bytes follow for the length"
+        let data = &[0x82u8, 0x01u8, 0x00u8]; // length = 256
+        let (len, consumed) = parse_der_length(data, 0).unwrap();
+        assert_eq!(len, 256);
+        assert_eq!(consumed, 3);
+    }
+
+    #[test]
+    fn der_length_indefinite_form_returns_none() {
+        // 0x80 = indefinite form — not valid in DER
+        let data = &[0x80u8];
+        assert!(parse_der_length(data, 0).is_none());
+    }
+
+    #[test]
+    fn der_length_out_of_bounds_pos_returns_none() {
+        let data = &[0x05u8];
+        assert!(parse_der_length(data, 5).is_none());
+    }
+
+    #[test]
+    fn der_length_truncated_long_form_returns_none() {
+        // 0x82 says two bytes follow but there's only one
+        let data = &[0x82u8, 0x01u8];
+        assert!(parse_der_length(data, 0).is_none());
+    }
+
+    #[test]
+    fn der_length_too_many_length_bytes_returns_none() {
+        // 0x85 = five length bytes — our limit is 4
+        let data = &[0x85u8, 0x00, 0x00, 0x00, 0x00, 0x01];
+        assert!(parse_der_length(data, 0).is_none());
+    }
+
+    #[test]
+    fn der_length_nonzero_offset() {
+        let data = &[0xFFu8, 0x05u8]; // junk at 0, short-form 5 at offset 1
+        let (len, consumed) = parse_der_length(data, 1).unwrap();
+        assert_eq!(len, 5);
+        assert_eq!(consumed, 1);
+    }
+
+    // ── extract_cn_from_der ───────────────────────────────────────────────────
+
+    #[test]
+    fn extract_cn_empty_slice_returns_none() {
+        assert!(extract_cn_from_der(&[]).is_none());
+    }
+
+    #[test]
+    fn extract_cn_no_cn_oid_returns_none() {
+        // Random bytes — no CN OID present
+        let data = &[0x30u8, 0x03, 0x01, 0x01, 0xFF];
+        assert!(extract_cn_from_der(data).is_none());
+    }
+
+    #[test]
+    fn extract_cn_valid_sequence() {
+        // Minimal hand-crafted DER containing the CN OID followed by a UTF8String
+        // CN OID: 55 04 03
+        // UTF8String tag: 0C, length: 04, value: "test"
+        let mut data = vec![
+            0x55u8, 0x04, 0x03, // CN OID
+            0x0C, // UTF8String tag
+            0x04, // length = 4
+            b't', b'e', b's', b't',
+        ];
+        // Pad with enough surrounding bytes so the while-loop runs
+        let mut buf = vec![0u8; 5];
+        buf.append(&mut data);
+        buf.extend_from_slice(&[0u8; 5]);
+        let result = extract_cn_from_der(&buf);
+        assert_eq!(result, Some("test".to_string()));
+    }
+
+    #[test]
+    fn extract_cn_invalid_utf8_returns_none() {
+        // OID followed by an invalid UTF-8 sequence
+        let mut buf = vec![0u8; 5];
+        buf.extend_from_slice(&[
+            0x55u8, 0x04, 0x03, // CN OID
+            0x0C, // UTF8String tag
+            0x02, // length = 2
+            0xFF, 0xFE, // invalid UTF-8
+        ]);
+        buf.extend_from_slice(&[0u8; 5]);
+        assert!(extract_cn_from_der(&buf).is_none());
+    }
+
+    #[test]
+    fn extract_cn_truncated_value_returns_none() {
+        // OID found but value extends beyond buffer
+        let mut buf = vec![0u8; 5];
+        buf.extend_from_slice(&[
+            0x55u8, 0x04, 0x03, // CN OID
+            0x0C, // UTF8String tag
+            0x10, // length = 16, but no bytes follow
+        ]);
+        buf.extend_from_slice(&[0u8; 5]);
+        assert!(extract_cn_from_der(&buf).is_none());
+    }
+}
