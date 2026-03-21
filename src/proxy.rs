@@ -1,11 +1,9 @@
 use crate::allowlist::Allowlist;
 use crate::config::Config;
 use crate::pac::generate_pac;
-use crate::security::is_private_ip;
 use crate::tls::{build_server_tls_config, extract_client_cn};
+use crate::{full_body, json_response, BoxBody};
 use arc_swap::ArcSwap;
-use bytes::Bytes;
-use http_body_util::{BodyExt, Full};
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use serde_json::json;
@@ -16,22 +14,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsAcceptor;
 use tracing::{error, info, warn};
-
-type BoxBody = http_body_util::combinators::BoxBody<Bytes, hyper::Error>;
-
-fn full_body(s: &str) -> BoxBody {
-    Full::new(Bytes::from(s.to_string()))
-        .map_err(|never| match never {})
-        .boxed()
-}
-
-fn json_response(status: StatusCode, body: &str) -> Response<BoxBody> {
-    Response::builder()
-        .status(status)
-        .header("Content-Type", "application/json")
-        .body(full_body(body))
-        .unwrap()
-}
 
 /// Shared proxy state, hot-swappable on SIGHUP.
 pub struct ProxyState {
@@ -203,11 +185,83 @@ async fn handle_tls_connection(
 }
 
 #[derive(Clone)]
-struct ConnOpts {
-    connect_timeout_ms: u64,
-    idle_timeout_ms: u64,
-    block_private_ips: bool,
-    allowed_connect_ports: Vec<u16>,
+pub struct ConnOpts {
+    pub connect_timeout_ms: u64,
+    pub idle_timeout_ms: u64,
+    pub block_private_ips: bool,
+    pub allowed_connect_ports: Vec<u16>,
+}
+
+/// Resolve a host:port via DNS, check for private IPs, and connect with a timeout.
+/// Returns the connected `TcpStream` or a ready-made error `Response`.
+pub async fn resolve_and_connect(
+    host: &str,
+    port: u16,
+    opts: &ConnOpts,
+    client_cn: &Option<String>,
+) -> Result<TcpStream, Response<BoxBody>> {
+    let addr = format!("{}:{}", host, port);
+
+    let resolved: Vec<std::net::SocketAddr> = match tokio::net::lookup_host(&addr).await {
+        Ok(addrs) => addrs.collect(),
+        Err(e) => {
+            warn!(client_cn = ?client_cn, host = %host, port = port, error = %e, "DNS resolution failed");
+            return Err(json_response(
+                StatusCode::BAD_GATEWAY,
+                &json!({"error": "upstream_unreachable", "host": host}).to_string(),
+            ));
+        }
+    };
+
+    if resolved.is_empty() {
+        warn!(client_cn = ?client_cn, host = %host, port = port, "DNS resolution returned no addresses");
+        return Err(json_response(
+            StatusCode::BAD_GATEWAY,
+            &json!({"error": "upstream_unreachable", "host": host}).to_string(),
+        ));
+    }
+
+    if opts.block_private_ips {
+        for resolved_addr in &resolved {
+            if crate::security::is_private_ip(resolved_addr.ip()) {
+                warn!(
+                    client_cn = ?client_cn,
+                    host = %host,
+                    port = port,
+                    resolved_ip = %resolved_addr.ip(),
+                    reason = "private_ip_blocked",
+                    "Denied: host resolves to private IP"
+                );
+                return Err(json_response(
+                    StatusCode::FORBIDDEN,
+                    &json!({"error": "private_ip_blocked", "host": host}).to_string(),
+                ));
+            }
+        }
+    }
+
+    match tokio::time::timeout(
+        Duration::from_millis(opts.connect_timeout_ms),
+        TcpStream::connect(resolved.as_slice()),
+    )
+    .await
+    {
+        Ok(Ok(s)) => Ok(s),
+        Ok(Err(e)) => {
+            warn!(client_cn = ?client_cn, host = %host, port = port, error = %e, "Upstream unreachable");
+            Err(json_response(
+                StatusCode::BAD_GATEWAY,
+                &json!({"error": "upstream_unreachable", "host": host}).to_string(),
+            ))
+        }
+        Err(_) => {
+            warn!(client_cn = ?client_cn, host = %host, port = port, "Upstream connect timeout");
+            Err(json_response(
+                StatusCode::GATEWAY_TIMEOUT,
+                &json!({"error": "upstream_timeout", "host": host}).to_string(),
+            ))
+        }
+    }
 }
 
 async fn handle_proxy_http<S>(
@@ -259,19 +313,10 @@ async fn dispatch_proxy_request(
     if req.method() == Method::CONNECT {
         handle_connect_request(req, allowlist, opts, client_cn).await
     } else {
-        crate::http_handler::handle_http(
-            req,
-            allowlist,
-            opts.connect_timeout_ms,
-            opts.block_private_ips,
-            &opts.allowed_connect_ports,
-            client_cn,
-        )
-        .await
+        crate::http_handler::handle_http(req, allowlist, &opts, client_cn).await
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn handle_connect_request(
     req: Request<hyper::body::Incoming>,
     allowlist: Arc<Allowlist>,
@@ -331,74 +376,9 @@ async fn handle_connect_request(
 
     let matched_rule = allowlist.matched_rule(&host).unwrap_or_default();
 
-    // Connect to upstream
-    let addr = format!("{}:{}", host, port);
-
-    // Resolve DNS asynchronously and check for private IPs before connecting.
-    // IMPORTANT: We connect to the resolved SocketAddr directly to prevent
-    // TOCTOU DNS rebinding attacks (where a second resolution could return
-    // a different, private IP).
-    let resolved: Vec<std::net::SocketAddr> = match tokio::net::lookup_host(&addr).await {
-        Ok(addrs) => addrs.collect(),
-        Err(e) => {
-            warn!(client_cn = ?client_cn, host = %host, port = port, error = %e, "CONNECT: DNS resolution failed");
-            return json_response(
-                StatusCode::BAD_GATEWAY,
-                &json!({"error": "upstream_unreachable", "host": host}).to_string(),
-            );
-        }
-    };
-
-    if resolved.is_empty() {
-        warn!(client_cn = ?client_cn, host = %host, port = port, "CONNECT: DNS resolution returned no addresses");
-        return json_response(
-            StatusCode::BAD_GATEWAY,
-            &json!({"error": "upstream_unreachable", "host": host}).to_string(),
-        );
-    }
-
-    // SSRF protection: reject if any resolved address is private
-    if opts.block_private_ips {
-        for resolved_addr in &resolved {
-            if is_private_ip(resolved_addr.ip()) {
-                warn!(
-                    client_cn = ?client_cn,
-                    host = %host,
-                    port = port,
-                    resolved_ip = %resolved_addr.ip(),
-                    reason = "private_ip_blocked",
-                    "CONNECT denied: host resolves to private IP"
-                );
-                return json_response(
-                    StatusCode::FORBIDDEN,
-                    &json!({"error": "private_ip_blocked", "host": host}).to_string(),
-                );
-            }
-        }
-    }
-
-    // Connect to the already-resolved address (no second DNS lookup)
-    let upstream = match tokio::time::timeout(
-        Duration::from_millis(opts.connect_timeout_ms),
-        tokio::net::TcpStream::connect(resolved.as_slice()),
-    )
-    .await
-    {
-        Ok(Ok(s)) => s,
-        Ok(Err(e)) => {
-            warn!(client_cn = ?client_cn, host = %host, port = port, error = %e, "CONNECT: upstream unreachable");
-            return json_response(
-                StatusCode::BAD_GATEWAY,
-                &json!({"error": "upstream_unreachable", "host": host}).to_string(),
-            );
-        }
-        Err(_) => {
-            warn!(client_cn = ?client_cn, host = %host, port = port, "CONNECT: upstream timeout");
-            return json_response(
-                StatusCode::GATEWAY_TIMEOUT,
-                &json!({"error": "upstream_timeout", "host": host}).to_string(),
-            );
-        }
+    let upstream = match resolve_and_connect(&host, port, &opts, &client_cn).await {
+        Ok(s) => s,
+        Err(resp) => return resp,
     };
 
     let upstream_addr = upstream

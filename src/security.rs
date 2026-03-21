@@ -63,14 +63,6 @@ fn is_ipv6_link_local(ip: &Ipv6Addr) -> bool {
     (ip.segments()[0] & 0xFFC0) == 0xFE80
 }
 
-/// Allowed ports for CONNECT tunnels.
-const ALLOWED_CONNECT_PORTS: &[u16] = &[443, 8443];
-
-/// Check if a port is allowed for CONNECT tunneling.
-pub fn is_allowed_connect_port(port: u16) -> bool {
-    ALLOWED_CONNECT_PORTS.contains(&port)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,22 +119,6 @@ mod tests {
     #[test]
     fn public_ipv6() {
         assert!(!is_private_ip("2001:4860:4860::8888".parse().unwrap()));
-    }
-
-    #[test]
-    fn allowed_connect_ports() {
-        assert!(is_allowed_connect_port(443));
-        assert!(is_allowed_connect_port(8443));
-        assert!(!is_allowed_connect_port(22));
-        assert!(!is_allowed_connect_port(25));
-        assert!(!is_allowed_connect_port(80));
-    }
-
-    #[test]
-    fn disallowed_connect_port_edge_cases() {
-        assert!(!is_allowed_connect_port(0));
-        assert!(!is_allowed_connect_port(8080));
-        assert!(!is_allowed_connect_port(65535));
     }
 
     #[test]
