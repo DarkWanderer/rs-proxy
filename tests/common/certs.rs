@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
 use rcgen::{
-    BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, KeyPair,
-    KeyUsagePurpose,
+    BasicConstraints, CertificateParams, CertifiedIssuer, DnType, ExtendedKeyUsagePurpose, IsCa,
+    KeyPair, KeyUsagePurpose,
 };
 use std::path::PathBuf;
 
@@ -57,7 +57,7 @@ pub fn generate_test_pki() -> TestPkiOwned {
     ca_params
         .distinguished_name
         .push(DnType::CommonName, "Test CA");
-    let ca_cert = ca_params.self_signed(&ca_key).unwrap();
+    let ca_cert = CertifiedIssuer::self_signed(ca_params, ca_key).unwrap();
 
     // Generate server cert signed by CA
     let server_key = KeyPair::generate().unwrap();
@@ -66,9 +66,7 @@ pub fn generate_test_pki() -> TestPkiOwned {
         .distinguished_name
         .push(DnType::CommonName, "localhost");
     server_params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
-    let server_cert = server_params
-        .signed_by(&server_key, &ca_cert, &ca_key)
-        .unwrap();
+    let server_cert = server_params.signed_by(&server_key, &ca_cert).unwrap();
 
     // Generate valid client cert signed by CA
     let client_key = KeyPair::generate().unwrap();
@@ -77,9 +75,7 @@ pub fn generate_test_pki() -> TestPkiOwned {
         .distinguished_name
         .push(DnType::CommonName, "test-client");
     client_params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ClientAuth];
-    let client_cert = client_params
-        .signed_by(&client_key, &ca_cert, &ca_key)
-        .unwrap();
+    let client_cert = client_params.signed_by(&client_key, &ca_cert).unwrap();
 
     // Generate wrong CA
     let wrong_ca_key = KeyPair::generate().unwrap();
@@ -89,7 +85,7 @@ pub fn generate_test_pki() -> TestPkiOwned {
     wrong_ca_params
         .distinguished_name
         .push(DnType::CommonName, "Wrong CA");
-    let wrong_ca_cert = wrong_ca_params.self_signed(&wrong_ca_key).unwrap();
+    let wrong_ca_cert = CertifiedIssuer::self_signed(wrong_ca_params, wrong_ca_key).unwrap();
 
     // Generate client cert signed by wrong CA
     let wrong_client_key = KeyPair::generate().unwrap();
@@ -99,7 +95,7 @@ pub fn generate_test_pki() -> TestPkiOwned {
         .push(DnType::CommonName, "wrong-client");
     wrong_client_params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ClientAuth];
     let wrong_client_cert = wrong_client_params
-        .signed_by(&wrong_client_key, &wrong_ca_cert, &wrong_ca_key)
+        .signed_by(&wrong_client_key, &wrong_ca_cert)
         .unwrap();
 
     // Write all to files
