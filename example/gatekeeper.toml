@@ -1,0 +1,26 @@
+# Example Gatekeeper configuration
+#
+# This config is used by the end-to-end test and demonstrates a minimal
+# working setup. Run gen-certs.sh first to populate the certs/ directory,
+# then start the proxy from within this directory:
+#
+#   bash gen-certs.sh
+#   ../target/release/gatekeeper --config gatekeeper.toml
+
+[proxy]
+bind = "127.0.0.1:3128"
+
+[tls]
+server_cert = "certs/server.crt"   # PEM cert chain (server + CA)
+server_key  = "certs/server.key"   # PEM private key
+ca_cert     = "certs/ca.crt"       # CA that signs client certificates
+
+[allowlist]
+domains = [
+    "google.com",
+    "www.google.com",
+]
+
+[logging]
+level = "info"
+format = "pretty"
