@@ -1,3 +1,4 @@
+#![allow(unused_crate_dependencies)]
 mod common;
 use common::{build_client_tls_config, fetch_pac, generate_test_pki};
 use rustls::pki_types::ServerName;
@@ -33,11 +34,7 @@ async fn connect_status(
 
     let mut response = Vec::new();
     let mut byte = [0u8; 1];
-    loop {
-        match tls_stream.read_exact(&mut byte).await {
-            Ok(_) => {}
-            Err(_) => break,
-        }
+    while tls_stream.read_exact(&mut byte).await.is_ok() {
         response.push(byte[0]);
         if response.ends_with(b"\r\n\r\n") {
             break;

@@ -137,7 +137,7 @@ pub async fn run_proxy(server: Arc<ProxyServer>) -> anyhow::Result<()> {
 }
 
 async fn handle_connection(
-    mut stream: TcpStream,
+    stream: TcpStream,
     peer_addr: std::net::SocketAddr,
     server: Arc<ProxyServer>,
 ) {
@@ -218,7 +218,7 @@ async fn handle_proxy_http<S>(
     // Use hyper for HTTP parsing but intercept CONNECT ourselves.
 
     // Read the HTTP request manually
-    let mut io = TokioIo::new(stream);
+    let io = TokioIo::new(stream);
 
     // Build an HTTP/1.1 server connection
     use hyper::server::conn::http1;
@@ -387,7 +387,7 @@ async fn handle_connect_request(
         .unwrap()
 }
 
-async fn bidirectional_copy<A, B>(mut a: A, mut b: B, idle_timeout: Duration) -> (u64, u64)
+async fn bidirectional_copy<A, B>(a: A, b: B, idle_timeout: Duration) -> (u64, u64)
 where
     A: AsyncReadExt + AsyncWriteExt + Unpin,
     B: AsyncReadExt + AsyncWriteExt + Unpin,
@@ -429,7 +429,7 @@ async fn handle_plaintext_connection(
     server: Arc<ProxyServer>,
 ) {
     // Only serve GET /proxy.pac; everything else gets 403
-    let mut io = TokioIo::new(stream);
+    let io = TokioIo::new(stream);
     let state = server.state.load();
     let pac_script = state.pac_script.clone();
     drop(state);

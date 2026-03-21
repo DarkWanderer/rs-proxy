@@ -1,3 +1,4 @@
+#![allow(unused_crate_dependencies)]
 mod common;
 use common::{
     build_client_tls_config, generate_test_pki, spawn_proxy, spawn_proxy_with, TestProxyConfig,

@@ -1,3 +1,4 @@
+#![allow(unused_crate_dependencies)]
 mod common;
 use common::{fetch_pac, generate_test_pki, spawn_proxy};
 

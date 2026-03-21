@@ -1,3 +1,5 @@
+#![allow(unused_crate_dependencies)]
+
 use gatekeeper::config::Config;
 use gatekeeper::logging;
 use gatekeeper::proxy::{ProxyServer, ProxyState};

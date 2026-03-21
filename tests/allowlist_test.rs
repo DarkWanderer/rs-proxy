@@ -1,3 +1,4 @@
+#![allow(unused_crate_dependencies)]
 /// Unit tests U1-U12 for the domain allowlist engine.
 /// The core test logic lives in allowlist.rs #[cfg(test)].
 /// This file just re-exports to confirm the module compiles in test context.

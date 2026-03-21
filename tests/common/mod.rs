@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod certs;
 
 pub use certs::{generate_test_pki, TempDir, TestPkiOwned};

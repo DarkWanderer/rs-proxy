@@ -85,7 +85,7 @@ impl Config {
         let bind = &self.proxy.bind;
         // If binding to 0.0.0.0, use hostname
         if bind.starts_with("0.0.0.0:") {
-            let port = bind.split(':').last().unwrap_or("3128");
+            let port = bind.split(':').next_back().unwrap_or("3128");
             let hostname = hostname::get()
                 .ok()
                 .and_then(|h| h.into_string().ok())

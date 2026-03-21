@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use rcgen::{
     BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, KeyPair,
     KeyUsagePurpose,
