@@ -1,5 +1,7 @@
 # Gatekeeper — development guidelines for Claude
 
+* This project does not have external dependants. If any function becomes unused, it can be safely deleted
+
 ## After every change
 
 Run **both** of the following before committing:
