@@ -79,6 +79,10 @@ impl Allowlist {
     pub fn len(&self) -> usize {
         self.rules.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.rules.is_empty()
+    }
 }
 
 fn strip_port(host: &str) -> &str {

@@ -48,7 +48,12 @@ impl ProxyState {
             &config.tls.ca_cert,
         )?;
         let tls_acceptor = TlsAcceptor::from(tls_config);
-        Ok(ProxyState { config, allowlist, pac_script, tls_acceptor })
+        Ok(ProxyState {
+            config,
+            allowlist,
+            pac_script,
+            tls_acceptor,
+        })
     }
 }
 
@@ -64,18 +69,20 @@ impl ProxyServer {
 
     pub fn reload_config(&self) {
         match Config::load(&self.config_path) {
-            Ok(new_config) => {
-                match ProxyState::new(new_config) {
-                    Ok(new_state) => {
-                        let domain_count = new_state.allowlist.len();
-                        self.state.store(Arc::new(new_state));
-                        info!(success = true, domain_count = domain_count, "Config reload successful");
-                    }
-                    Err(e) => {
-                        error!(success = false, error = %e, "Config reload failed: could not build proxy state");
-                    }
+            Ok(new_config) => match ProxyState::new(new_config) {
+                Ok(new_state) => {
+                    let domain_count = new_state.allowlist.len();
+                    self.state.store(Arc::new(new_state));
+                    info!(
+                        success = true,
+                        domain_count = domain_count,
+                        "Config reload successful"
+                    );
                 }
-            }
+                Err(e) => {
+                    error!(success = false, error = %e, "Config reload failed: could not build proxy state");
+                }
+            },
             Err(e) => {
                 error!(success = false, error = %e, "Config reload failed: invalid config");
             }
@@ -89,7 +96,8 @@ pub async fn run_proxy(server: Arc<ProxyServer>) -> anyhow::Result<()> {
         state.config.proxy.bind.clone()
     };
 
-    let listener = TcpListener::bind(&bind_addr).await
+    let listener = TcpListener::bind(&bind_addr)
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to bind to '{}': {}", bind_addr, e))?;
 
     info!(addr = %bind_addr, "Proxy listening");
@@ -129,7 +137,7 @@ pub async fn run_proxy(server: Arc<ProxyServer>) -> anyhow::Result<()> {
 }
 
 async fn handle_connection(
-    mut stream: TcpStream,
+    stream: TcpStream,
     peer_addr: std::net::SocketAddr,
     server: Arc<ProxyServer>,
 ) {
@@ -210,7 +218,7 @@ async fn handle_proxy_http<S>(
     // Use hyper for HTTP parsing but intercept CONNECT ourselves.
 
     // Read the HTTP request manually
-    let mut io = TokioIo::new(stream);
+    let io = TokioIo::new(stream);
 
     // Build an HTTP/1.1 server connection
     use hyper::server::conn::http1;
@@ -223,7 +231,7 @@ async fn handle_proxy_http<S>(
         let al = al.clone();
         async move {
             Ok::<Response<BoxBody>, std::convert::Infallible>(
-                dispatch_proxy_request(req, al, connect_timeout_ms, idle_timeout_ms, cn).await
+                dispatch_proxy_request(req, al, connect_timeout_ms, idle_timeout_ms, cn).await,
             )
         }
     });
@@ -249,7 +257,14 @@ async fn dispatch_proxy_request(
     client_cn: Option<String>,
 ) -> Response<BoxBody> {
     if req.method() == Method::CONNECT {
-        handle_connect_request(req, allowlist, connect_timeout_ms, idle_timeout_ms, client_cn).await
+        handle_connect_request(
+            req,
+            allowlist,
+            connect_timeout_ms,
+            idle_timeout_ms,
+            client_cn,
+        )
+        .await
     } else {
         crate::http_handler::handle_http(req, allowlist, connect_timeout_ms, client_cn).await
     }
@@ -324,7 +339,11 @@ async fn handle_connect_request(
         }
     };
 
-    let upstream_addr = upstream.peer_addr().ok().map(|a| a.to_string()).unwrap_or_default();
+    let upstream_addr = upstream
+        .peer_addr()
+        .ok()
+        .map(|a| a.to_string())
+        .unwrap_or_default();
     info!(
         client_cn = ?client_cn,
         host = %host,
@@ -368,7 +387,7 @@ async fn handle_connect_request(
         .unwrap()
 }
 
-async fn bidirectional_copy<A, B>(mut a: A, mut b: B, idle_timeout: Duration) -> (u64, u64)
+async fn bidirectional_copy<A, B>(a: A, b: B, idle_timeout: Duration) -> (u64, u64)
 where
     A: AsyncReadExt + AsyncWriteExt + Unpin,
     B: AsyncReadExt + AsyncWriteExt + Unpin,
@@ -410,7 +429,7 @@ async fn handle_plaintext_connection(
     server: Arc<ProxyServer>,
 ) {
     // Only serve GET /proxy.pac; everything else gets 403
-    let mut io = TokioIo::new(stream);
+    let io = TokioIo::new(stream);
     let state = server.state.load();
     let pac_script = state.pac_script.clone();
     drop(state);

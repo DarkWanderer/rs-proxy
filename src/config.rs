@@ -22,9 +22,15 @@ pub struct ProxyConfig {
     pub pac_proxy_addr: Option<String>,
 }
 
-fn default_max_connections() -> usize { 1024 }
-fn default_connect_timeout_ms() -> u64 { 5000 }
-fn default_idle_timeout_ms() -> u64 { 30000 }
+fn default_max_connections() -> usize {
+    1024
+}
+fn default_connect_timeout_ms() -> u64 {
+    5000
+}
+fn default_idle_timeout_ms() -> u64 {
+    30000
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TlsConfig {
@@ -46,8 +52,12 @@ pub struct LoggingConfig {
     pub format: String,
 }
 
-fn default_log_level() -> String { "info".to_string() }
-fn default_log_format() -> String { "json".to_string() }
+fn default_log_level() -> String {
+    "info".to_string()
+}
+fn default_log_format() -> String {
+    "json".to_string()
+}
 
 impl Config {
     pub fn load(path: &str) -> anyhow::Result<Self> {
@@ -75,7 +85,7 @@ impl Config {
         let bind = &self.proxy.bind;
         // If binding to 0.0.0.0, use hostname
         if bind.starts_with("0.0.0.0:") {
-            let port = bind.split(':').last().unwrap_or("3128");
+            let port = bind.split(':').next_back().unwrap_or("3128");
             let hostname = hostname::get()
                 .ok()
                 .and_then(|h| h.into_string().ok())
@@ -90,7 +100,9 @@ impl Config {
 pub fn validate_domain_rule(domain: &str) -> anyhow::Result<()> {
     // Reject bare wildcard
     if domain == "*" {
-        return Err(anyhow::anyhow!("Bare wildcard '*' is not allowed as a domain rule"));
+        return Err(anyhow::anyhow!(
+            "Bare wildcard '*' is not allowed as a domain rule"
+        ));
     }
 
     // Check for IP address
@@ -110,7 +122,10 @@ pub fn validate_domain_rule(domain: &str) -> anyhow::Result<()> {
             ));
         }
         if rest.is_empty() {
-            return Err(anyhow::anyhow!("Invalid wildcard pattern '{}': missing domain after '*.'", domain));
+            return Err(anyhow::anyhow!(
+                "Invalid wildcard pattern '{}': missing domain after '*.'",
+                domain
+            ));
         }
         validate_hostname(rest, domain)?;
     } else if domain.contains('*') {
@@ -131,7 +146,10 @@ fn validate_hostname(host: &str, original: &str) -> anyhow::Result<()> {
     }
     for label in host.split('.') {
         if label.is_empty() {
-            return Err(anyhow::anyhow!("Invalid hostname in rule '{}': empty label", original));
+            return Err(anyhow::anyhow!(
+                "Invalid hostname in rule '{}': empty label",
+                original
+            ));
         }
     }
     Ok(())
@@ -157,7 +175,9 @@ mod hostname {
         unsafe {
             if libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len()) == 0 {
                 let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-                Ok(std::ffi::OsString::from(std::str::from_utf8(&buf[..len]).unwrap_or("localhost")))
+                Ok(std::ffi::OsString::from(
+                    std::str::from_utf8(&buf[..len]).unwrap_or("localhost"),
+                ))
             } else {
                 Err(std::io::Error::last_os_error())
             }

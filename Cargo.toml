@@ -25,9 +25,7 @@ serde = { version = "1", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 clap = { version = "4", features = ["derive"] }
-tokio-stream = "0.1"
 bytes = "1"
-futures-util = "0.3"
 arc-swap = "1"
 anyhow = "1"
 libc = "0.2"

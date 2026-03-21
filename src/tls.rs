@@ -11,16 +11,26 @@ pub fn build_server_tls_config(
     ca_cert: &Path,
 ) -> anyhow::Result<Arc<ServerConfig>> {
     // Load server cert chain
-    let cert_file = std::fs::File::open(server_cert)
-        .map_err(|e| anyhow::anyhow!("Failed to open server cert '{}': {}", server_cert.display(), e))?;
+    let cert_file = std::fs::File::open(server_cert).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to open server cert '{}': {}",
+            server_cert.display(),
+            e
+        )
+    })?;
     let mut cert_reader = BufReader::new(cert_file);
     let cert_chain: Vec<rustls::pki_types::CertificateDer<'static>> = certs(&mut cert_reader)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| anyhow::anyhow!("Failed to parse server cert: {}", e))?;
 
     // Load server private key
-    let key_file = std::fs::File::open(server_key)
-        .map_err(|e| anyhow::anyhow!("Failed to open server key '{}': {}", server_key.display(), e))?;
+    let key_file = std::fs::File::open(server_key).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to open server key '{}': {}",
+            server_key.display(),
+            e
+        )
+    })?;
     let mut key_reader = BufReader::new(key_file);
     let private_key = private_key(&mut key_reader)
         .map_err(|e| anyhow::anyhow!("Failed to parse server key: {}", e))?
@@ -42,19 +52,17 @@ pub fn build_server_tls_config(
 
     // Build client cert verifier (mandatory)
     let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let client_verifier = WebPkiClientVerifier::builder_with_provider(
-        Arc::new(root_store),
-        provider.clone(),
-    )
-    .build()
-    .map_err(|e| anyhow::anyhow!("Failed to build client verifier: {}", e))?;
+    let client_verifier =
+        WebPkiClientVerifier::builder_with_provider(Arc::new(root_store), provider.clone())
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to build client verifier: {}", e))?;
 
     let config = ServerConfig::builder_with_provider(provider)
-    .with_safe_default_protocol_versions()
-    .map_err(|e| anyhow::anyhow!("Failed to set TLS protocol versions: {}", e))?
-    .with_client_cert_verifier(client_verifier)
-    .with_single_cert(cert_chain, private_key)
-    .map_err(|e| anyhow::anyhow!("Failed to build TLS config: {}", e))?;
+        .with_safe_default_protocol_versions()
+        .map_err(|e| anyhow::anyhow!("Failed to set TLS protocol versions: {}", e))?
+        .with_client_cert_verifier(client_verifier)
+        .with_single_cert(cert_chain, private_key)
+        .map_err(|e| anyhow::anyhow!("Failed to build TLS config: {}", e))?;
 
     Ok(Arc::new(config))
 }

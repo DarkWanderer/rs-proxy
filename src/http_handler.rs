@@ -1,7 +1,7 @@
 use crate::allowlist::Allowlist;
-use hyper::{Request, Response, StatusCode};
-use http_body_util::{BodyExt, Full};
 use bytes::Bytes;
+use http_body_util::{BodyExt, Full};
+use hyper::{Request, Response, StatusCode};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
@@ -113,19 +113,16 @@ pub async fn handle_http(
     });
 
     // Rebuild request without proxy absolute URI
-    let path = uri.path_and_query()
-        .map(|p| p.as_str())
-        .unwrap_or("/");
+    let path = uri.path_and_query().map(|p| p.as_str()).unwrap_or("/");
 
     let (mut parts, body) = req.into_parts();
     parts.uri = path.parse().unwrap_or_else(|_| "/".parse().unwrap());
 
     // Ensure Host header is set
     if !parts.headers.contains_key(hyper::header::HOST) {
-        parts.headers.insert(
-            hyper::header::HOST,
-            host.parse().unwrap(),
-        );
+        parts
+            .headers
+            .insert(hyper::header::HOST, host.parse().unwrap());
     }
 
     let new_req = Request::from_parts(parts, body);
