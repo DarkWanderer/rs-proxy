@@ -67,6 +67,8 @@ pub async fn spawn_proxy_with(pki: &TestPkiOwned, cfg: TestProxyConfig<'_>) -> T
 bind = "{addr}"
 connect_timeout_ms = {connect_timeout}
 idle_timeout_ms = {idle_timeout}
+block_private_ips = false
+allowed_connect_ports = []
 
 [tls]
 server_cert = "{server_cert}"

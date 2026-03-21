@@ -1,7 +1,9 @@
 use crate::allowlist::Allowlist;
+use crate::security::{escape_json, is_private_ip};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::{Request, Response, StatusCode};
+use std::net::ToSocketAddrs;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
@@ -27,6 +29,7 @@ pub async fn handle_http(
     req: Request<hyper::body::Incoming>,
     allowlist: Arc<Allowlist>,
     connect_timeout_ms: u64,
+    block_private_ips: bool,
     client_cn: Option<String>,
 ) -> Response<BoxBody> {
     let uri = req.uri().clone();
@@ -55,7 +58,10 @@ pub async fn handle_http(
         );
         return json_response(
             StatusCode::FORBIDDEN,
-            &format!(r#"{{"error":"domain_not_allowed","host":"{}"}}"#, host),
+            &format!(
+                r#"{{"error":"domain_not_allowed","host":"{}"}}"#,
+                escape_json(&host)
+            ),
         );
     }
 
@@ -69,6 +75,54 @@ pub async fn handle_http(
         "Request allowed"
     );
 
+    // SSRF protection: resolve DNS and check that all addresses are public
+    if block_private_ips {
+        match host_with_port.to_socket_addrs() {
+            Ok(addrs) => {
+                let resolved: Vec<_> = addrs.collect();
+                if resolved.is_empty() {
+                    warn!(client_cn = ?client_cn, host = %host, port = port, "DNS resolution returned no addresses");
+                    return json_response(
+                        StatusCode::BAD_GATEWAY,
+                        &format!(
+                            r#"{{"error":"upstream_unreachable","host":"{}"}}"#,
+                            escape_json(&host)
+                        ),
+                    );
+                }
+                for resolved_addr in &resolved {
+                    if is_private_ip(resolved_addr.ip()) {
+                        warn!(
+                            client_cn = ?client_cn,
+                            host = %host,
+                            port = port,
+                            resolved_ip = %resolved_addr.ip(),
+                            reason = "private_ip_blocked",
+                            "Request denied: host resolves to private IP"
+                        );
+                        return json_response(
+                            StatusCode::FORBIDDEN,
+                            &format!(
+                                r#"{{"error":"private_ip_blocked","host":"{}"}}"#,
+                                escape_json(&host)
+                            ),
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(client_cn = ?client_cn, host = %host, port = port, error = %e, "DNS resolution failed");
+                return json_response(
+                    StatusCode::BAD_GATEWAY,
+                    &format!(
+                        r#"{{"error":"upstream_unreachable","host":"{}"}}"#,
+                        escape_json(&host)
+                    ),
+                );
+            }
+        }
+    }
+
     // Connect to upstream
     let stream = match tokio::time::timeout(
         Duration::from_millis(connect_timeout_ms),
@@ -81,14 +135,20 @@ pub async fn handle_http(
             warn!(host = %host, error = %e, "Upstream unreachable");
             return json_response(
                 StatusCode::BAD_GATEWAY,
-                &format!(r#"{{"error":"upstream_unreachable","host":"{}"}}"#, host),
+                &format!(
+                    r#"{{"error":"upstream_unreachable","host":"{}"}}"#,
+                    escape_json(&host)
+                ),
             );
         }
         Err(_) => {
             warn!(host = %host, "Upstream connect timeout");
             return json_response(
                 StatusCode::GATEWAY_TIMEOUT,
-                &format!(r#"{{"error":"upstream_timeout","host":"{}"}}"#, host),
+                &format!(
+                    r#"{{"error":"upstream_timeout","host":"{}"}}"#,
+                    escape_json(&host)
+                ),
             );
         }
     };
@@ -137,7 +197,10 @@ pub async fn handle_http(
             warn!(host = %host, error = %e, "Upstream request failed");
             json_response(
                 StatusCode::BAD_GATEWAY,
-                &format!(r#"{{"error":"upstream_unreachable","host":"{}"}}"#, host),
+                &format!(
+                    r#"{{"error":"upstream_unreachable","host":"{}"}}"#,
+                    escape_json(&host)
+                ),
             )
         }
     }

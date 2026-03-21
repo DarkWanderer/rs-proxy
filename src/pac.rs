@@ -1,6 +1,8 @@
 use crate::allowlist::{Allowlist, DomainRule};
+use crate::security::escape_js;
 
 pub fn generate_pac(allowlist: &Allowlist, proxy_addr: &str) -> String {
+    let escaped_proxy = escape_js(proxy_addr);
     let mut lines = vec![
         "function FindProxyForURL(url, host) {".to_string(),
         "    host = host.toLowerCase();".to_string(),
@@ -11,14 +13,16 @@ pub fn generate_pac(allowlist: &Allowlist, proxy_addr: &str) -> String {
             DomainRule::Exact(domain) => {
                 lines.push(format!(
                     "    if (host === \"{}\") return \"PROXY {}\";",
-                    domain, proxy_addr
+                    escape_js(domain),
+                    escaped_proxy
                 ));
             }
             DomainRule::Wildcard(suffix) => {
                 // suffix is ".crates.io", PAC uses dnsDomainIs with the suffix
                 lines.push(format!(
                     "    if (dnsDomainIs(host, \"{}\")) return \"PROXY {}\";",
-                    suffix, proxy_addr
+                    escape_js(suffix),
+                    escaped_proxy
                 ));
             }
         }

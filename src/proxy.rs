@@ -1,12 +1,14 @@
 use crate::allowlist::Allowlist;
 use crate::config::Config;
 use crate::pac::generate_pac;
+use crate::security::{escape_json, is_private_ip};
 use crate::tls::{build_server_tls_config, extract_client_cn};
 use arc_swap::ArcSwap;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
+use std::net::ToSocketAddrs;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -188,50 +190,48 @@ async fn handle_tls_connection(
     // Now handle as HTTP proxy
     let state = server.state.load();
     let allowlist = state.allowlist.clone();
-    let connect_timeout_ms = state.config.proxy.connect_timeout_ms;
-    let idle_timeout_ms = state.config.proxy.idle_timeout_ms;
+    let opts = ConnOpts {
+        connect_timeout_ms: state.config.proxy.connect_timeout_ms,
+        idle_timeout_ms: state.config.proxy.idle_timeout_ms,
+        block_private_ips: state.config.proxy.block_private_ips,
+        allowed_connect_ports: state.config.proxy.allowed_connect_ports.clone(),
+    };
     drop(state);
 
-    handle_proxy_http(
-        tls_stream,
-        peer_addr,
-        allowlist,
-        connect_timeout_ms,
-        idle_timeout_ms,
-        client_cn,
-    )
-    .await;
+    handle_proxy_http(tls_stream, peer_addr, allowlist, opts, client_cn).await;
+}
+
+#[derive(Clone)]
+struct ConnOpts {
+    connect_timeout_ms: u64,
+    idle_timeout_ms: u64,
+    block_private_ips: bool,
+    allowed_connect_ports: Vec<u16>,
 }
 
 async fn handle_proxy_http<S>(
     stream: S,
     peer_addr: std::net::SocketAddr,
     allowlist: Arc<Allowlist>,
-    connect_timeout_ms: u64,
-    idle_timeout_ms: u64,
+    opts: ConnOpts,
     client_cn: Option<String>,
 ) where
     S: AsyncReadExt + AsyncWriteExt + Unpin + Send + 'static,
 {
-    // We need to handle CONNECT specially because after sending 200,
-    // we become a byte pipe rather than HTTP server.
-    // Use hyper for HTTP parsing but intercept CONNECT ourselves.
-
-    // Read the HTTP request manually
     let io = TokioIo::new(stream);
-
-    // Build an HTTP/1.1 server connection
     use hyper::server::conn::http1;
 
     let cn = client_cn.clone();
     let al = allowlist.clone();
+    let opts2 = opts.clone();
 
     let service = hyper::service::service_fn(move |req: Request<hyper::body::Incoming>| {
         let cn = cn.clone();
         let al = al.clone();
+        let opts = opts2.clone();
         async move {
             Ok::<Response<BoxBody>, std::convert::Infallible>(
-                dispatch_proxy_request(req, al, connect_timeout_ms, idle_timeout_ms, cn).await,
+                dispatch_proxy_request(req, al, opts, cn).await,
             )
         }
     });
@@ -252,29 +252,28 @@ async fn handle_proxy_http<S>(
 async fn dispatch_proxy_request(
     req: Request<hyper::body::Incoming>,
     allowlist: Arc<Allowlist>,
-    connect_timeout_ms: u64,
-    idle_timeout_ms: u64,
+    opts: ConnOpts,
     client_cn: Option<String>,
 ) -> Response<BoxBody> {
     if req.method() == Method::CONNECT {
-        handle_connect_request(
+        handle_connect_request(req, allowlist, opts, client_cn).await
+    } else {
+        crate::http_handler::handle_http(
             req,
             allowlist,
-            connect_timeout_ms,
-            idle_timeout_ms,
+            opts.connect_timeout_ms,
+            opts.block_private_ips,
             client_cn,
         )
         .await
-    } else {
-        crate::http_handler::handle_http(req, allowlist, connect_timeout_ms, client_cn).await
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_connect_request(
     req: Request<hyper::body::Incoming>,
     allowlist: Arc<Allowlist>,
-    connect_timeout_ms: u64,
-    idle_timeout_ms: u64,
+    opts: ConnOpts,
     client_cn: Option<String>,
 ) -> Response<BoxBody> {
     let authority = match req.uri().authority() {
@@ -308,7 +307,30 @@ async fn handle_connect_request(
         );
         return json_response(
             StatusCode::FORBIDDEN,
-            &format!(r#"{{"error":"domain_not_allowed","host":"{}"}}"#, host),
+            &format!(
+                r#"{{"error":"domain_not_allowed","host":"{}"}}"#,
+                escape_json(&host)
+            ),
+        );
+    }
+
+    // Restrict CONNECT to configured ports (default: 443, 8443)
+    if !opts.allowed_connect_ports.is_empty() && !opts.allowed_connect_ports.contains(&port) {
+        warn!(
+            client_cn = ?client_cn,
+            method = "CONNECT",
+            host = %host,
+            port = port,
+            reason = "port_not_allowed",
+            "CONNECT denied: port not in allowed set"
+        );
+        return json_response(
+            StatusCode::FORBIDDEN,
+            &format!(
+                r#"{{"error":"port_not_allowed","host":"{}","port":{}}}"#,
+                escape_json(&host),
+                port
+            ),
         );
     }
 
@@ -316,8 +338,57 @@ async fn handle_connect_request(
 
     // Connect to upstream
     let addr = format!("{}:{}", host, port);
+
+    // SSRF protection: resolve DNS and check that all addresses are public
+    if opts.block_private_ips {
+        match addr.to_socket_addrs() {
+            Ok(addrs) => {
+                let resolved: Vec<_> = addrs.collect();
+                if resolved.is_empty() {
+                    warn!(client_cn = ?client_cn, host = %host, port = port, "CONNECT: DNS resolution returned no addresses");
+                    return json_response(
+                        StatusCode::BAD_GATEWAY,
+                        &format!(
+                            r#"{{"error":"upstream_unreachable","host":"{}"}}"#,
+                            escape_json(&host)
+                        ),
+                    );
+                }
+                for resolved_addr in &resolved {
+                    if is_private_ip(resolved_addr.ip()) {
+                        warn!(
+                            client_cn = ?client_cn,
+                            host = %host,
+                            port = port,
+                            resolved_ip = %resolved_addr.ip(),
+                            reason = "private_ip_blocked",
+                            "CONNECT denied: host resolves to private IP"
+                        );
+                        return json_response(
+                            StatusCode::FORBIDDEN,
+                            &format!(
+                                r#"{{"error":"private_ip_blocked","host":"{}"}}"#,
+                                escape_json(&host)
+                            ),
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(client_cn = ?client_cn, host = %host, port = port, error = %e, "CONNECT: DNS resolution failed");
+                return json_response(
+                    StatusCode::BAD_GATEWAY,
+                    &format!(
+                        r#"{{"error":"upstream_unreachable","host":"{}"}}"#,
+                        escape_json(&host)
+                    ),
+                );
+            }
+        }
+    }
+
     let upstream = match tokio::time::timeout(
-        Duration::from_millis(connect_timeout_ms),
+        Duration::from_millis(opts.connect_timeout_ms),
         tokio::net::TcpStream::connect(&addr),
     )
     .await
@@ -327,14 +398,20 @@ async fn handle_connect_request(
             warn!(client_cn = ?client_cn, host = %host, port = port, error = %e, "CONNECT: upstream unreachable");
             return json_response(
                 StatusCode::BAD_GATEWAY,
-                &format!(r#"{{"error":"upstream_unreachable","host":"{}"}}"#, host),
+                &format!(
+                    r#"{{"error":"upstream_unreachable","host":"{}"}}"#,
+                    escape_json(&host)
+                ),
             );
         }
         Err(_) => {
             warn!(client_cn = ?client_cn, host = %host, port = port, "CONNECT: upstream timeout");
             return json_response(
                 StatusCode::GATEWAY_TIMEOUT,
-                &format!(r#"{{"error":"upstream_timeout","host":"{}"}}"#, host),
+                &format!(
+                    r#"{{"error":"upstream_timeout","host":"{}"}}"#,
+                    escape_json(&host)
+                ),
             );
         }
     };
@@ -355,7 +432,7 @@ async fn handle_connect_request(
 
     let cn_close = client_cn.clone();
     let host_close = host.clone();
-    let idle_timeout = Duration::from_millis(idle_timeout_ms);
+    let idle_timeout = Duration::from_millis(opts.idle_timeout_ms);
 
     // Use hyper's upgrade mechanism
     tokio::task::spawn(async move {

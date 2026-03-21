@@ -20,6 +20,12 @@ pub struct ProxyConfig {
     #[serde(default = "default_idle_timeout_ms")]
     pub idle_timeout_ms: u64,
     pub pac_proxy_addr: Option<String>,
+    /// Block connections to private/loopback IPs (SSRF protection). Default: true.
+    #[serde(default = "default_block_private_ips")]
+    pub block_private_ips: bool,
+    /// Restrict CONNECT to these ports. Empty list means all ports allowed.
+    #[serde(default = "default_allowed_connect_ports")]
+    pub allowed_connect_ports: Vec<u16>,
 }
 
 fn default_max_connections() -> usize {
@@ -30,6 +36,12 @@ fn default_connect_timeout_ms() -> u64 {
 }
 fn default_idle_timeout_ms() -> u64 {
     30000
+}
+fn default_block_private_ips() -> bool {
+    true
+}
+fn default_allowed_connect_ports() -> Vec<u16> {
+    vec![443, 8443]
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -150,6 +162,26 @@ fn validate_hostname(host: &str, original: &str) -> anyhow::Result<()> {
                 "Invalid hostname in rule '{}': empty label",
                 original
             ));
+        }
+        // Labels must only contain alphanumeric, hyphens, and (for
+        // internationalized names) non-ASCII characters.
+        // They must not start or end with a hyphen.
+        if label.starts_with('-') || label.ends_with('-') {
+            return Err(anyhow::anyhow!(
+                "Invalid hostname in rule '{}': label '{}' starts or ends with hyphen",
+                original,
+                label
+            ));
+        }
+        for ch in label.chars() {
+            if !ch.is_alphanumeric() && ch != '-' {
+                return Err(anyhow::anyhow!(
+                    "Invalid hostname in rule '{}': label '{}' contains invalid character '{}'",
+                    original,
+                    label,
+                    ch
+                ));
+            }
         }
     }
     Ok(())
