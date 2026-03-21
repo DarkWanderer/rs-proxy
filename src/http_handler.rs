@@ -1,8 +1,9 @@
 use crate::allowlist::Allowlist;
-use crate::security::{escape_json, is_private_ip};
+use crate::security::is_private_ip;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::{Request, Response, StatusCode};
+use serde_json::json;
 use std::net::ToSocketAddrs;
 use std::sync::Arc;
 use std::time::Duration;
@@ -58,10 +59,7 @@ pub async fn handle_http(
         );
         return json_response(
             StatusCode::FORBIDDEN,
-            &format!(
-                r#"{{"error":"domain_not_allowed","host":"{}"}}"#,
-                escape_json(&host)
-            ),
+            &json!({"error": "domain_not_allowed", "host": host}).to_string(),
         );
     }
 
@@ -84,10 +82,7 @@ pub async fn handle_http(
                     warn!(client_cn = ?client_cn, host = %host, port = port, "DNS resolution returned no addresses");
                     return json_response(
                         StatusCode::BAD_GATEWAY,
-                        &format!(
-                            r#"{{"error":"upstream_unreachable","host":"{}"}}"#,
-                            escape_json(&host)
-                        ),
+                        &json!({"error": "upstream_unreachable", "host": host}).to_string(),
                     );
                 }
                 for resolved_addr in &resolved {
@@ -102,10 +97,7 @@ pub async fn handle_http(
                         );
                         return json_response(
                             StatusCode::FORBIDDEN,
-                            &format!(
-                                r#"{{"error":"private_ip_blocked","host":"{}"}}"#,
-                                escape_json(&host)
-                            ),
+                            &json!({"error": "private_ip_blocked", "host": host}).to_string(),
                         );
                     }
                 }
@@ -114,10 +106,7 @@ pub async fn handle_http(
                 warn!(client_cn = ?client_cn, host = %host, port = port, error = %e, "DNS resolution failed");
                 return json_response(
                     StatusCode::BAD_GATEWAY,
-                    &format!(
-                        r#"{{"error":"upstream_unreachable","host":"{}"}}"#,
-                        escape_json(&host)
-                    ),
+                    &json!({"error": "upstream_unreachable", "host": host}).to_string(),
                 );
             }
         }
@@ -135,20 +124,14 @@ pub async fn handle_http(
             warn!(host = %host, error = %e, "Upstream unreachable");
             return json_response(
                 StatusCode::BAD_GATEWAY,
-                &format!(
-                    r#"{{"error":"upstream_unreachable","host":"{}"}}"#,
-                    escape_json(&host)
-                ),
+                &json!({"error": "upstream_unreachable", "host": host}).to_string(),
             );
         }
         Err(_) => {
             warn!(host = %host, "Upstream connect timeout");
             return json_response(
                 StatusCode::GATEWAY_TIMEOUT,
-                &format!(
-                    r#"{{"error":"upstream_timeout","host":"{}"}}"#,
-                    escape_json(&host)
-                ),
+                &json!({"error": "upstream_timeout", "host": host}).to_string(),
             );
         }
     };
@@ -161,7 +144,7 @@ pub async fn handle_http(
             warn!(host = %host, error = %e, "HTTP handshake failed");
             return json_response(
                 StatusCode::BAD_GATEWAY,
-                &format!(r#"{{"error":"upstream_unreachable","host":"{}"}}"#, host),
+                &json!({"error": "upstream_unreachable", "host": host}).to_string(),
             );
         }
     };
@@ -197,10 +180,7 @@ pub async fn handle_http(
             warn!(host = %host, error = %e, "Upstream request failed");
             json_response(
                 StatusCode::BAD_GATEWAY,
-                &format!(
-                    r#"{{"error":"upstream_unreachable","host":"{}"}}"#,
-                    escape_json(&host)
-                ),
+                &json!({"error": "upstream_unreachable", "host": host}).to_string(),
             )
         }
     }

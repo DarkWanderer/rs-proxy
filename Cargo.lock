@@ -300,6 +300,7 @@ dependencies = [
  "rustls",
  "rustls-pemfile",
  "serde",
+ "serde_json",
  "tokio",
  "tokio-rustls",
  "toml",

@@ -1,13 +1,14 @@
 use crate::allowlist::Allowlist;
 use crate::config::Config;
 use crate::pac::generate_pac;
-use crate::security::{escape_json, is_private_ip};
+use crate::security::is_private_ip;
 use crate::tls::{build_server_tls_config, extract_client_cn};
 use arc_swap::ArcSwap;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
+use serde_json::json;
 use std::net::ToSocketAddrs;
 use std::sync::Arc;
 use std::time::Duration;
@@ -307,10 +308,7 @@ async fn handle_connect_request(
         );
         return json_response(
             StatusCode::FORBIDDEN,
-            &format!(
-                r#"{{"error":"domain_not_allowed","host":"{}"}}"#,
-                escape_json(&host)
-            ),
+            &json!({"error": "domain_not_allowed", "host": host}).to_string(),
         );
     }
 
@@ -326,11 +324,7 @@ async fn handle_connect_request(
         );
         return json_response(
             StatusCode::FORBIDDEN,
-            &format!(
-                r#"{{"error":"port_not_allowed","host":"{}","port":{}}}"#,
-                escape_json(&host),
-                port
-            ),
+            &json!({"error": "port_not_allowed", "host": host, "port": port}).to_string(),
         );
     }
 
@@ -348,10 +342,7 @@ async fn handle_connect_request(
                     warn!(client_cn = ?client_cn, host = %host, port = port, "CONNECT: DNS resolution returned no addresses");
                     return json_response(
                         StatusCode::BAD_GATEWAY,
-                        &format!(
-                            r#"{{"error":"upstream_unreachable","host":"{}"}}"#,
-                            escape_json(&host)
-                        ),
+                        &json!({"error": "upstream_unreachable", "host": host}).to_string(),
                     );
                 }
                 for resolved_addr in &resolved {
@@ -366,10 +357,7 @@ async fn handle_connect_request(
                         );
                         return json_response(
                             StatusCode::FORBIDDEN,
-                            &format!(
-                                r#"{{"error":"private_ip_blocked","host":"{}"}}"#,
-                                escape_json(&host)
-                            ),
+                            &json!({"error": "private_ip_blocked", "host": host}).to_string(),
                         );
                     }
                 }
@@ -378,10 +366,7 @@ async fn handle_connect_request(
                 warn!(client_cn = ?client_cn, host = %host, port = port, error = %e, "CONNECT: DNS resolution failed");
                 return json_response(
                     StatusCode::BAD_GATEWAY,
-                    &format!(
-                        r#"{{"error":"upstream_unreachable","host":"{}"}}"#,
-                        escape_json(&host)
-                    ),
+                    &json!({"error": "upstream_unreachable", "host": host}).to_string(),
                 );
             }
         }
@@ -398,20 +383,14 @@ async fn handle_connect_request(
             warn!(client_cn = ?client_cn, host = %host, port = port, error = %e, "CONNECT: upstream unreachable");
             return json_response(
                 StatusCode::BAD_GATEWAY,
-                &format!(
-                    r#"{{"error":"upstream_unreachable","host":"{}"}}"#,
-                    escape_json(&host)
-                ),
+                &json!({"error": "upstream_unreachable", "host": host}).to_string(),
             );
         }
         Err(_) => {
             warn!(client_cn = ?client_cn, host = %host, port = port, "CONNECT: upstream timeout");
             return json_response(
                 StatusCode::GATEWAY_TIMEOUT,
-                &format!(
-                    r#"{{"error":"upstream_timeout","host":"{}"}}"#,
-                    escape_json(&host)
-                ),
+                &json!({"error": "upstream_timeout", "host": host}).to_string(),
             );
         }
     };
