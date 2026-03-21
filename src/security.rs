@@ -1,28 +1,5 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-/// Escape a string for safe interpolation in a JSON string value.
-/// Handles `"`, `\`, and control characters.
-pub fn escape_json(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for ch in s.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if c.is_control() => {
-                // \u00XX escape for other control characters
-                for unit in c.encode_utf16(&mut [0u16; 2]) {
-                    out.push_str(&format!("\\u{:04x}", unit));
-                }
-            }
-            c => out.push(c),
-        }
-    }
-    out
-}
-
 /// Escape a string for safe interpolation in a JavaScript string literal.
 pub fn escape_js(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -97,27 +74,6 @@ pub fn is_allowed_connect_port(port: u16) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn json_escape_quotes() {
-        assert_eq!(escape_json(r#"a"b"#), r#"a\"b"#);
-    }
-
-    #[test]
-    fn json_escape_backslash() {
-        assert_eq!(escape_json(r"a\b"), r"a\\b");
-    }
-
-    #[test]
-    fn json_escape_control() {
-        assert_eq!(escape_json("a\nb"), r"a\nb");
-        assert_eq!(escape_json("a\x00b"), r"a\u0000b");
-    }
-
-    #[test]
-    fn json_escape_passthrough() {
-        assert_eq!(escape_json("hello.com"), "hello.com");
-    }
 
     #[test]
     fn js_escape_script_tag() {
