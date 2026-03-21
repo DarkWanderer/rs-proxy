@@ -4,6 +4,7 @@
 //! These tests exercise inputs that historically break parsers or allow security
 //! bypass: Unicode/homographs, embedded control characters, port overflows,
 //! deeply-nested labels, IPv6 edge cases, and whitespace tricks.
+#![allow(unused_crate_dependencies)]
 
 use gatekeeper::allowlist::Allowlist;
 use gatekeeper::config::validate_domain_rule;
@@ -84,7 +85,7 @@ fn adv_allowlist_very_long_domain() {
 
 #[test]
 fn adv_allowlist_many_duplicate_rules_dedup() {
-    let rules: Vec<&str> = std::iter::repeat("github.com").take(10_000).collect();
+    let rules: Vec<&str> = std::iter::repeat_n("github.com", 10_000).collect();
     let al = allowlist(&rules);
     assert_eq!(al.len(), 1);
     assert!(al.is_allowed("github.com"));
@@ -155,11 +156,7 @@ fn adv_allowlist_newline_in_host_does_not_match() {
 #[test]
 fn adv_allowlist_is_allowed_matched_rule_consistency() {
     // Property: is_allowed(h) == matched_rule(h).is_some() for all h.
-    let domains = &[
-        "github.com",
-        "*.crates.io",
-        "registry.npmjs.org",
-    ];
+    let domains = &["github.com", "*.crates.io", "registry.npmjs.org"];
     let al = allowlist(domains);
 
     let hosts = &[
@@ -287,8 +284,10 @@ fn adv_connect_unicode_in_authority() {
 
 #[test]
 fn adv_connect_control_chars() {
-    assert!(parse_connect_authority("exa\x00mple.com:443").is_none()
-        || parse_connect_authority("exa\x00mple.com:443").is_some()); // must not panic
+    assert!(
+        parse_connect_authority("exa\x00mple.com:443").is_none()
+            || parse_connect_authority("exa\x00mple.com:443").is_some()
+    ); // must not panic
     let _ = parse_connect_authority("\x00:443");
     let _ = parse_connect_authority("example.com:\x00");
 }
@@ -452,8 +451,14 @@ fn adv_pac_brace_balance() {
 fn adv_pac_wildcard_rule_uses_dns_domain_is() {
     let al = allowlist(&["*.crates.io"]);
     let pac = generate_pac(&al, "proxy.internal:3128");
-    assert!(pac.contains("dnsDomainIs"), "wildcard rules must use dnsDomainIs");
-    assert!(!pac.contains("host === \".crates.io\""), "wildcard should not use exact match");
+    assert!(
+        pac.contains("dnsDomainIs"),
+        "wildcard rules must use dnsDomainIs"
+    );
+    assert!(
+        !pac.contains("host === \".crates.io\""),
+        "wildcard should not use exact match"
+    );
 }
 
 #[test]
