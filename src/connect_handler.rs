@@ -14,5 +14,8 @@ pub fn parse_connect_authority(authority: &str) -> Option<(String, u16)> {
     let mut parts = authority.rsplitn(2, ':');
     let port: u16 = parts.next()?.parse().ok()?;
     let host = parts.next()?.to_string();
+    if host.is_empty() {
+        return None;
+    }
     Some((host, port))
 }
