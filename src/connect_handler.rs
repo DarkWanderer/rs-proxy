@@ -4,6 +4,9 @@ pub fn parse_connect_authority(authority: &str) -> Option<(String, u16)> {
     if authority.starts_with('[') {
         let close = authority.find(']')?;
         let host = authority[1..close].to_string();
+        if host.is_empty() {
+            return None;
+        }
         let port_str = authority.get(close + 2..)?;
         let port: u16 = port_str.parse().ok()?;
         return Some((host, port));

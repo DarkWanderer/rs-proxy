@@ -1,0 +1,49 @@
+[package]
+name = "gatekeeper-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
+arbitrary = { version = "1", features = ["derive"] }
+
+[dependencies.gatekeeper]
+path = ".."
+
+# cargo-fuzz requires its own workspace
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "allowlist"
+path = "fuzz_targets/allowlist.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "connect_authority"
+path = "fuzz_targets/connect_authority.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "domain_validation"
+path = "fuzz_targets/domain_validation.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "pac_generation"
+path = "fuzz_targets/pac_generation.rs"
+test = false
+doc = false
+
+[profile.release]
+panic = "abort"
+
+[profile.dev]
+panic = "abort"
