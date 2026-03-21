@@ -86,8 +86,11 @@ impl Allowlist {
 }
 
 fn strip_port(host: &str) -> &str {
-    // Handle IPv6 [::1]:port
+    // Handle IPv6 [::1]:port → extract content between brackets
     if host.starts_with('[') {
+        if let Some(close) = host.find(']') {
+            return &host[1..close];
+        }
         return host;
     }
     if let Some(pos) = host.rfind(':') {

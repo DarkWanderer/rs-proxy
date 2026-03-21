@@ -95,6 +95,8 @@ async fn i12_config_reload_valid() {
 bind = "{addr}"
 connect_timeout_ms = 200
 idle_timeout_ms = 1000
+block_private_ips = false
+allowed_connect_ports = []
 
 [tls]
 server_cert = "{server_cert}"
@@ -210,6 +212,8 @@ async fn i13_config_reload_invalid() {
 bind = "{addr}"
 connect_timeout_ms = 200
 idle_timeout_ms = 1000
+block_private_ips = false
+allowed_connect_ports = []
 
 [tls]
 server_cert = "{server_cert}"

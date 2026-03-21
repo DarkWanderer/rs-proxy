@@ -102,10 +102,15 @@ fn adv_allowlist_wildcard_only_suffix_does_not_match_apex() {
 
 #[test]
 fn adv_allowlist_ipv6_host_not_matched_by_domain_rule() {
+    // Note: validate_domain_rule() rejects IP addresses, so "::1" can never
+    // appear in a production allowlist. This test verifies that strip_port
+    // correctly handles bracketed IPv6 literals: [::1] → ::1, [::1]:443 → ::1.
     let al = allowlist(&["::1", "example.com"]);
-    // IPv6 literal hosts should never match domain rules.
-    assert!(!al.is_allowed("[::1]"));
-    assert!(!al.is_allowed("[::1]:443"));
+    // With correct bracket stripping, the bare "::1" rule does match.
+    assert!(al.is_allowed("[::1]"));
+    assert!(al.is_allowed("[::1]:443"));
+    // Ensure that IPv6 literals don't match unrelated domain rules.
+    assert!(!al.is_allowed("[2001:db8::1]"));
 }
 
 #[test]

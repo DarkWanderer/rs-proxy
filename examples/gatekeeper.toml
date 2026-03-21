@@ -4,6 +4,8 @@ bind = "0.0.0.0:3128"
 # connect_timeout_ms = 5000    # Timeout for upstream CONNECT. Default: 5000
 # idle_timeout_ms = 30000      # Idle tunnel teardown timeout. Default: 30000
 # pac_proxy_addr = "proxy.internal:3128"  # Override address used in PAC output
+# block_private_ips = true               # Block connections to private/loopback IPs (SSRF protection). Default: true
+# allowed_connect_ports = [443, 8443]    # Restrict CONNECT to these ports. Empty list = all ports. Default: [443, 8443]
 
 [tls]
 server_cert = "/etc/gatekeeper/server.crt"   # Proxy's own TLS cert (PEM, may include chain)

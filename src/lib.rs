@@ -9,4 +9,5 @@ pub mod http_handler;
 pub mod logging;
 pub mod pac;
 pub mod proxy;
+pub mod security;
 pub mod tls;
