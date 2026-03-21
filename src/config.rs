@@ -200,6 +200,132 @@ fn is_ip_address(s: &str) -> bool {
     false
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_config(bind: &str, pac_proxy_addr: Option<&str>) -> Config {
+        Config {
+            proxy: ProxyConfig {
+                bind: bind.to_string(),
+                max_connections: 1024,
+                connect_timeout_ms: 5000,
+                idle_timeout_ms: 30000,
+                pac_proxy_addr: pac_proxy_addr.map(|s| s.to_string()),
+                block_private_ips: true,
+                allowed_connect_ports: vec![443, 8443],
+            },
+            tls: TlsConfig {
+                server_cert: "cert.pem".into(),
+                server_key: "key.pem".into(),
+                ca_cert: "ca.pem".into(),
+            },
+            allowlist: AllowlistConfig { domains: vec![] },
+            logging: LoggingConfig::default(),
+        }
+    }
+
+    #[test]
+    fn pac_proxy_addr_explicit_overrides_bind() {
+        let config = make_config("0.0.0.0:3128", Some("proxy.example.com:3128"));
+        assert_eq!(config.pac_proxy_addr(), "proxy.example.com:3128");
+    }
+
+    #[test]
+    fn pac_proxy_addr_loopback_returned_as_is() {
+        let config = make_config("127.0.0.1:3128", None);
+        assert_eq!(config.pac_proxy_addr(), "127.0.0.1:3128");
+    }
+
+    #[test]
+    fn pac_proxy_addr_wildcard_bind_uses_hostname() {
+        let config = make_config("0.0.0.0:3128", None);
+        let addr = config.pac_proxy_addr();
+        // Must include the port
+        assert!(addr.ends_with(":3128"), "expected port 3128 in '{}'", addr);
+        // Must not be the raw wildcard bind address
+        assert!(!addr.starts_with("0.0.0.0"));
+    }
+
+    #[test]
+    fn validate_valid_domain_with_hyphen() {
+        assert!(validate_domain_rule("my-host.example.com").is_ok());
+        assert!(validate_domain_rule("a1-b2.example.com").is_ok());
+    }
+
+    #[test]
+    fn validate_leading_hyphen_in_label_rejected() {
+        assert!(validate_domain_rule("-example.com").is_err());
+        assert!(validate_domain_rule("sub.-example.com").is_err());
+    }
+
+    #[test]
+    fn validate_trailing_hyphen_in_label_rejected() {
+        assert!(validate_domain_rule("example-.com").is_err());
+        assert!(validate_domain_rule("sub.example-.com").is_err());
+    }
+
+    #[test]
+    fn validate_wildcard_with_valid_subdomain() {
+        assert!(validate_domain_rule("*.my-host.example.com").is_ok());
+    }
+
+    #[test]
+    fn validate_single_label_domain_accepted() {
+        // Single-label domains are technically valid for local use
+        assert!(validate_domain_rule("localhost").is_ok());
+        assert!(validate_domain_rule("intranet").is_ok());
+    }
+
+    #[test]
+    fn config_load_missing_file_returns_error() {
+        let result = Config::load("/nonexistent/path/to/config.toml");
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("Failed to read config file"));
+    }
+
+    #[test]
+    fn config_load_invalid_toml_returns_error() {
+        let path = "/tmp/gatekeeper_test_invalid_toml.toml";
+        std::fs::write(path, "this is not valid toml !!@#$%%").unwrap();
+        let result = Config::load(path);
+        std::fs::remove_file(path).ok();
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("Failed to parse config file"));
+    }
+
+    #[test]
+    fn config_load_invalid_domain_rule_returns_error() {
+        let path = "/tmp/gatekeeper_test_invalid_domain.toml";
+        let content = r#"
+[proxy]
+bind = "127.0.0.1:3128"
+[tls]
+server_cert = "cert.pem"
+server_key = "key.pem"
+ca_cert = "ca.pem"
+[allowlist]
+domains = ["*"]
+"#;
+        std::fs::write(path, content).unwrap();
+        let result = Config::load(path);
+        std::fs::remove_file(path).ok();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_domain_rule_single_wildcard_prefix_ok() {
+        assert!(validate_domain_rule("*.example.com").is_ok());
+    }
+
+    #[test]
+    fn validate_domain_rule_double_wildcard_rejected() {
+        assert!(validate_domain_rule("*.*.example.com").is_err());
+    }
+}
+
 // hostname crate shim — just use std
 mod hostname {
     pub fn get() -> std::io::Result<std::ffi::OsString> {

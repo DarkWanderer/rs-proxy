@@ -180,4 +180,74 @@ mod tests {
         let al = allowlist(&["github.com", "github.com"]);
         assert_eq!(al.len(), 1);
     }
+
+    #[test]
+    fn u13_matched_rule_exact_returns_domain() {
+        let al = allowlist(&["github.com"]);
+        assert_eq!(
+            al.matched_rule("github.com"),
+            Some("github.com".to_string())
+        );
+    }
+
+    #[test]
+    fn u14_matched_rule_wildcard_returns_pattern() {
+        let al = allowlist(&["*.crates.io"]);
+        assert_eq!(
+            al.matched_rule("www.crates.io"),
+            Some("*.crates.io".to_string())
+        );
+    }
+
+    #[test]
+    fn u15_matched_rule_no_match_returns_none() {
+        let al = allowlist(&["github.com"]);
+        assert_eq!(al.matched_rule("evil.com"), None);
+        assert_eq!(al.matched_rule("www.github.com"), None);
+    }
+
+    #[test]
+    fn u16_is_empty_and_len() {
+        let empty = allowlist(&[]);
+        assert!(empty.is_empty());
+        assert_eq!(empty.len(), 0);
+
+        let one = allowlist(&["github.com"]);
+        assert!(!one.is_empty());
+        assert_eq!(one.len(), 1);
+
+        let two = allowlist(&["github.com", "*.crates.io"]);
+        assert_eq!(two.len(), 2);
+    }
+
+    #[test]
+    fn u17_rules_accessor_returns_all_rules() {
+        let al = allowlist(&["github.com", "*.crates.io"]);
+        assert_eq!(al.rules().len(), 2);
+    }
+
+    #[test]
+    fn u18_matched_rule_with_port_strips_port() {
+        let al = allowlist(&["github.com"]);
+        assert_eq!(
+            al.matched_rule("github.com:443"),
+            Some("github.com".to_string())
+        );
+    }
+
+    #[test]
+    fn u19_matched_rule_wildcard_apex_returns_none() {
+        let al = allowlist(&["*.crates.io"]);
+        // Apex domain must not match the wildcard rule
+        assert_eq!(al.matched_rule("crates.io"), None);
+    }
+
+    #[test]
+    fn u20_wildcard_case_insensitive() {
+        let al = allowlist(&["*.crates.io"]);
+        assert_eq!(
+            al.matched_rule("WWW.CRATES.IO"),
+            Some("*.crates.io".to_string())
+        );
+    }
 }
