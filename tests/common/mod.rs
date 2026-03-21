@@ -1,6 +1,6 @@
 pub mod certs;
 
-pub use certs::{generate_test_pki, TestPkiOwned, TempDir};
+pub use certs::{generate_test_pki, TempDir, TestPkiOwned};
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -33,7 +33,14 @@ impl Default for TestProxyConfig<'_> {
 
 /// Spawn a test proxy on a random port.
 pub async fn spawn_proxy(pki: &TestPkiOwned, allowlist: &[&str]) -> TestProxy {
-    spawn_proxy_with(pki, TestProxyConfig { allowlist, ..Default::default() }).await
+    spawn_proxy_with(
+        pki,
+        TestProxyConfig {
+            allowlist,
+            ..Default::default()
+        },
+    )
+    .await
 }
 
 pub async fn spawn_proxy_with(pki: &TestPkiOwned, cfg: TestProxyConfig<'_>) -> TestProxy {
@@ -46,7 +53,8 @@ pub async fn spawn_proxy_with(pki: &TestPkiOwned, cfg: TestProxyConfig<'_>) -> T
     let dir = TempDir::new().unwrap();
     let config_path = dir.path().join("config.toml");
 
-    let domains_toml = cfg.allowlist
+    let domains_toml = cfg
+        .allowlist
         .iter()
         .map(|d| format!("  \"{}\",", d))
         .collect::<Vec<_>>()
@@ -108,7 +116,11 @@ format = "pretty"
 
 /// Build a rustls client config with mTLS using the test PKI
 pub fn build_client_tls_config(pki: &TestPkiOwned) -> Arc<rustls::ClientConfig> {
-    build_client_tls_config_with_cert(&pki.client_cert_path, &pki.client_key_path, &pki.ca_cert_path)
+    build_client_tls_config_with_cert(
+        &pki.client_cert_path,
+        &pki.client_key_path,
+        &pki.ca_cert_path,
+    )
 }
 
 pub fn build_client_tls_config_with_cert(

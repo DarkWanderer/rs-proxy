@@ -1,8 +1,10 @@
 mod common;
-use common::{build_client_tls_config, generate_test_pki, spawn_proxy, spawn_proxy_with, TestProxyConfig};
+use common::{
+    build_client_tls_config, generate_test_pki, spawn_proxy, spawn_proxy_with, TestProxyConfig,
+};
+use rustls::pki_types::ServerName;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_rustls::TlsConnector;
-use rustls::pki_types::ServerName;
 
 async fn spawn_mock_tcp_echo_server() -> (u16, tokio::task::JoinHandle<()>) {
     use tokio::net::TcpListener;
@@ -12,7 +14,9 @@ async fn spawn_mock_tcp_echo_server() -> (u16, tokio::task::JoinHandle<()>) {
 
     let handle = tokio::spawn(async move {
         loop {
-            let Ok((mut stream, _)) = listener.accept().await else { break };
+            let Ok((mut stream, _)) = listener.accept().await else {
+                break;
+            };
             tokio::spawn(async move {
                 let mut buf = vec![0u8; 4096];
                 loop {
@@ -97,7 +101,9 @@ async fn i3_connect_tunnel_allowed_domain() {
     loop {
         tls_stream.read_exact(&mut byte).await.unwrap();
         response.push(byte[0]);
-        if response.ends_with(b"\r\n\r\n") { break; }
+        if response.ends_with(b"\r\n\r\n") {
+            break;
+        }
     }
 
     let response_str = String::from_utf8_lossy(&response);
@@ -138,7 +144,8 @@ async fn i5_connect_tunnel_upstream_unreachable() {
     let status = send_connect_and_get_status(proxy.addr, "localhost", 1, config).await;
     assert!(
         status == 502 || status == 504,
-        "Expected 502 or 504 for unreachable upstream, got {}", status
+        "Expected 502 or 504 for unreachable upstream, got {}",
+        status
     );
 }
 
@@ -177,7 +184,9 @@ async fn i14_connect_idle_timeout() {
     loop {
         tls_stream.read_exact(&mut byte).await.unwrap();
         response.push(byte[0]);
-        if response.ends_with(b"\r\n\r\n") { break; }
+        if response.ends_with(b"\r\n\r\n") {
+            break;
+        }
     }
 
     // Don't send any data — wait for idle timeout
@@ -253,6 +262,7 @@ async fn i15_concurrent_connections_limit() {
     // All should succeed since max_connections defaults to 1024
     assert!(
         results.iter().all(|&s| s == 200),
-        "Expected all tunnels to succeed, got: {:?}", results
+        "Expected all tunnels to succeed, got: {:?}",
+        results
     );
 }

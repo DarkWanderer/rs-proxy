@@ -1,8 +1,7 @@
 use tracing_subscriber::{fmt, EnvFilter};
 
 pub fn init(level: &str, format: &str) {
-    let filter = EnvFilter::try_new(level)
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_new(level).unwrap_or_else(|_| EnvFilter::new("info"));
 
     match format {
         "pretty" => {

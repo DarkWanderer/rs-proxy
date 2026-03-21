@@ -1,8 +1,8 @@
 mod common;
 use common::{build_client_tls_config, generate_test_pki, spawn_proxy};
+use rustls::pki_types::ServerName;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_rustls::TlsConnector;
-use rustls::pki_types::ServerName;
 
 /// Spawn a minimal mock HTTP server.
 /// Returns the listener address and a join handle.
@@ -14,7 +14,9 @@ async fn spawn_mock_http_server() -> (std::net::SocketAddr, tokio::task::JoinHan
 
     let handle = tokio::spawn(async move {
         loop {
-            let Ok((mut stream, _)) = listener.accept().await else { break };
+            let Ok((mut stream, _)) = listener.accept().await else {
+                break;
+            };
             tokio::spawn(async move {
                 let mut buf = vec![0u8; 4096];
                 let _ = stream.read(&mut buf).await;
@@ -70,7 +72,8 @@ async fn i2_http_forward_proxy_denied_domain() {
     let domain = ServerName::try_from("localhost".to_string()).unwrap();
     let mut tls_stream = connector.connect(domain, stream).await.unwrap();
 
-    let request = "GET http://denied.test/path HTTP/1.1\r\nHost: denied.test\r\nConnection: close\r\n\r\n";
+    let request =
+        "GET http://denied.test/path HTTP/1.1\r\nHost: denied.test\r\nConnection: close\r\n\r\n";
     tls_stream.write_all(request.as_bytes()).await.unwrap();
 
     let mut response = String::new();
@@ -81,5 +84,8 @@ async fn i2_http_forward_proxy_denied_domain() {
         "Expected 403, got: {}",
         response.lines().next().unwrap_or("")
     );
-    assert!(response.contains("domain_not_allowed"), "Missing domain_not_allowed body");
+    assert!(
+        response.contains("domain_not_allowed"),
+        "Missing domain_not_allowed body"
+    );
 }

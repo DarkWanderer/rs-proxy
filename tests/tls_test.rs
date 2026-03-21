@@ -1,9 +1,11 @@
 mod common;
-use common::{build_client_tls_config, build_client_tls_config_with_cert, generate_test_pki, spawn_proxy};
+use common::{
+    build_client_tls_config, build_client_tls_config_with_cert, generate_test_pki, spawn_proxy,
+};
+use rustls::pki_types::ServerName;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_rustls::TlsConnector;
-use rustls::pki_types::ServerName;
 
 /// In TLS 1.3, the server sends its CertificateVerified/Finished before it processes
 /// the client's cert. So `connector.connect()` may return Ok even if the server will
@@ -16,8 +18,8 @@ async fn try_proxy_connection(
     let stream = tokio::net::TcpStream::connect(proxy_addr)
         .await
         .map_err(|e| format!("TCP connect failed: {}", e))?;
-    let domain = ServerName::try_from("localhost".to_string())
-        .map_err(|e| format!("Bad domain: {}", e))?;
+    let domain =
+        ServerName::try_from("localhost".to_string()).map_err(|e| format!("Bad domain: {}", e))?;
 
     let mut tls_stream = match connector.connect(domain, stream).await {
         Ok(s) => s,
@@ -38,7 +40,10 @@ async fn try_proxy_connection(
             // Got some data back — connection actually worked
             Ok(())
         }
-        Err(e) => Err(format!("Read failed (server rejected post-handshake): {}", e)),
+        Err(e) => Err(format!(
+            "Read failed (server rejected post-handshake): {}",
+            e
+        )),
     }
 }
 
@@ -81,7 +86,10 @@ async fn i9_no_client_cert_handshake_failure() {
     let proxy = spawn_proxy(&pki, &[]).await;
 
     let result = tls_connect_no_cert(proxy.addr, &pki.ca_cert_path).await;
-    assert!(result.is_err(), "Expected TLS failure without client cert, but got success");
+    assert!(
+        result.is_err(),
+        "Expected TLS failure without client cert, but got success"
+    );
 }
 
 /// I10: Wrong CA client cert → connection should be rejected by server
@@ -98,7 +106,10 @@ async fn i10_wrong_ca_client_cert_handshake_failure() {
     );
 
     let result = try_proxy_connection(proxy.addr, config).await;
-    assert!(result.is_err(), "Expected TLS failure with wrong CA cert, but got success");
+    assert!(
+        result.is_err(),
+        "Expected TLS failure with wrong CA cert, but got success"
+    );
 }
 
 /// I11: Valid client cert → handshake succeeds and proxy responds
@@ -109,5 +120,9 @@ async fn i11_valid_client_cert_handshake_succeeds() {
 
     let config = build_client_tls_config(&pki);
     let result = try_proxy_connection(proxy.addr, config).await;
-    assert!(result.is_ok(), "Expected TLS success with valid client cert: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Expected TLS success with valid client cert: {:?}",
+        result.err()
+    );
 }
