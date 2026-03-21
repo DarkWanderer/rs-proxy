@@ -70,3 +70,46 @@ jobs:
 
       - name: Check formatting
         run: cargo fmt --all -- --check
+
+  e2e:
+    name: End-to-End
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Generate TLS certificates
+        run: bash example/gen-certs.sh
+
+      - name: Start proxy
+        run: |
+          cd example
+          ../target/release/gatekeeper --config gatekeeper.toml &
+          echo $! > /tmp/gatekeeper.pid
+          # Wait for the proxy to finish binding
+          sleep 1
+
+      - name: Test HTTPS via proxy to google.com
+        run: |
+          cd example
+          curl -sf \
+            --max-time 30 \
+            --proxy https://127.0.0.1:3128 \
+            --proxy-cacert certs/ca.crt \
+            --proxy-cert certs/client.crt \
+            --proxy-key certs/client.key \
+            https://www.google.com \
+            -o /dev/null
+
+      - name: Stop proxy
+        if: always()
+        run: kill "$(cat /tmp/gatekeeper.pid)" 2>/dev/null || true
