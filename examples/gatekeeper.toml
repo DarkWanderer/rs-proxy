@@ -1,0 +1,26 @@
+[proxy]
+bind = "0.0.0.0:3128"
+# max_connections = 1024       # Max concurrent connections. Default: 1024
+# connect_timeout_ms = 5000    # Timeout for upstream CONNECT. Default: 5000
+# idle_timeout_ms = 30000      # Idle tunnel teardown timeout. Default: 30000
+# pac_proxy_addr = "proxy.internal:3128"  # Override address used in PAC output
+
+[tls]
+server_cert = "/etc/gatekeeper/server.crt"   # Proxy's own TLS cert (PEM, may include chain)
+server_key  = "/etc/gatekeeper/server.key"   # Proxy's own TLS private key (PEM)
+ca_cert     = "/etc/gatekeeper/ca.crt"       # CA that signed client certificates (PEM)
+
+[allowlist]
+domains = [
+    "registry.npmjs.org",        # Exact match
+    "*.crates.io",               # Wildcard: any subdomain of crates.io
+    "github.com",                # Exact
+    "*.github.com",              # Subdomains of github.com
+    "*.githubusercontent.com",
+    "pypi.org",
+    "files.pythonhosted.org",
+]
+
+[logging]
+# level = "info"                # trace | debug | info | warn | error. Default: info
+# format = "json"               # json | pretty. Default: json
