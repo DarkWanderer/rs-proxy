@@ -11,3 +11,23 @@ pub mod pac;
 pub mod proxy;
 pub mod security;
 pub mod tls;
+
+use bytes::Bytes;
+use http_body_util::{BodyExt, Full};
+use hyper::{Response, StatusCode};
+
+pub type BoxBody = http_body_util::combinators::BoxBody<Bytes, hyper::Error>;
+
+pub fn full_body(s: &str) -> BoxBody {
+    Full::new(Bytes::from(s.to_string()))
+        .map_err(|never| match never {})
+        .boxed()
+}
+
+pub fn json_response(status: StatusCode, body: &str) -> Response<BoxBody> {
+    Response::builder()
+        .status(status)
+        .header("Content-Type", "application/json")
+        .body(full_body(body))
+        .unwrap()
+}

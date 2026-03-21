@@ -32,38 +32,23 @@ impl Allowlist {
 
     /// Check if a host (possibly with port) is allowed.
     pub fn is_allowed(&self, host: &str) -> bool {
-        let host = strip_port(host).to_lowercase();
-        for rule in &self.rules {
-            match rule {
-                DomainRule::Exact(exact) => {
-                    if host == *exact {
-                        return true;
-                    }
-                }
-                DomainRule::Wildcard(suffix) => {
-                    // suffix is like ".crates.io"
-                    // host must end with suffix AND have a non-empty prefix before suffix
-                    if host.ends_with(suffix.as_str()) && host.len() > suffix.len() {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
+        self.matched_rule(host).is_some()
     }
 
     /// Returns the matching rule string for logging
     pub fn matched_rule(&self, host: &str) -> Option<String> {
-        let host = strip_port(host).to_lowercase();
+        let host = strip_port(host);
         for rule in &self.rules {
             match rule {
                 DomainRule::Exact(exact) => {
-                    if host == *exact {
+                    if host.eq_ignore_ascii_case(exact) {
                         return Some(exact.clone());
                     }
                 }
                 DomainRule::Wildcard(suffix) => {
-                    if host.ends_with(suffix.as_str()) && host.len() > suffix.len() {
+                    if host.len() > suffix.len()
+                        && host[host.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
+                    {
                         return Some(format!("*{}", suffix));
                     }
                 }

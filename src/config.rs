@@ -188,16 +188,8 @@ fn validate_hostname(host: &str, original: &str) -> anyhow::Result<()> {
 }
 
 fn is_ip_address(s: &str) -> bool {
-    // Try IPv4
-    if s.parse::<std::net::Ipv4Addr>().is_ok() {
-        return true;
-    }
-    // Try IPv6 (possibly with brackets)
     let s = s.trim_start_matches('[').trim_end_matches(']');
-    if s.parse::<std::net::Ipv6Addr>().is_ok() {
-        return true;
-    }
-    false
+    s.parse::<std::net::IpAddr>().is_ok()
 }
 
 #[cfg(test)]

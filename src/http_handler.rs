@@ -1,29 +1,12 @@
 use crate::allowlist::Allowlist;
-use crate::security::is_private_ip;
-use bytes::Bytes;
-use http_body_util::{BodyExt, Full};
+use crate::proxy::ConnOpts;
+use crate::{json_response, BoxBody};
+use http_body_util::BodyExt;
 use hyper::{Request, Response, StatusCode};
 use serde_json::json;
 
 use std::sync::Arc;
-use std::time::Duration;
 use tracing::{info, warn};
-
-type BoxBody = http_body_util::combinators::BoxBody<Bytes, hyper::Error>;
-
-fn full_body(s: &str) -> BoxBody {
-    Full::new(Bytes::from(s.to_string()))
-        .map_err(|never| match never {})
-        .boxed()
-}
-
-fn json_response(status: StatusCode, body: &str) -> Response<BoxBody> {
-    Response::builder()
-        .status(status)
-        .header("Content-Type", "application/json")
-        .body(full_body(body))
-        .unwrap()
-}
 
 /// Hop-by-hop headers that MUST NOT be forwarded to the upstream server
 /// (RFC 2616 §13.5.1, RFC 7230 §6.1).
@@ -43,9 +26,7 @@ const HOP_BY_HOP_HEADERS: &[&str] = &[
 pub async fn handle_http(
     req: Request<hyper::body::Incoming>,
     allowlist: Arc<Allowlist>,
-    connect_timeout_ms: u64,
-    block_private_ips: bool,
-    allowed_ports: &[u16],
+    opts: &ConnOpts,
     client_cn: Option<String>,
 ) -> Response<BoxBody> {
     let uri = req.uri().clone();
@@ -62,8 +43,7 @@ pub async fn handle_http(
 
     let port = uri.port_u16().unwrap_or(80);
 
-    // Port restriction: restrict HTTP forwarding to allowed ports (mirrors CONNECT restriction)
-    if !allowed_ports.is_empty() && !allowed_ports.contains(&port) {
+    if !opts.allowed_connect_ports.is_empty() && !opts.allowed_connect_ports.contains(&port) {
         warn!(
             client_cn = ?client_cn,
             method = %req.method(),
@@ -77,8 +57,6 @@ pub async fn handle_http(
             &json!({"error": "port_not_allowed", "host": host, "port": port}).to_string(),
         );
     }
-
-    let host_with_port = format!("{}:{}", host, port);
 
     if !allowlist.is_allowed(&host) {
         warn!(
@@ -105,73 +83,11 @@ pub async fn handle_http(
         "Request allowed"
     );
 
-    // Resolve DNS asynchronously and check for private IPs before connecting.
-    // IMPORTANT: We connect to the resolved SocketAddr directly to prevent
-    // TOCTOU DNS rebinding attacks.
-    let resolved: Vec<std::net::SocketAddr> = match tokio::net::lookup_host(&host_with_port).await {
-        Ok(addrs) => addrs.collect(),
-        Err(e) => {
-            warn!(client_cn = ?client_cn, host = %host, port = port, error = %e, "DNS resolution failed");
-            return json_response(
-                StatusCode::BAD_GATEWAY,
-                &json!({"error": "upstream_unreachable", "host": host}).to_string(),
-            );
-        }
+    let stream = match crate::proxy::resolve_and_connect(&host, port, opts, &client_cn).await {
+        Ok(s) => s,
+        Err(resp) => return resp,
     };
 
-    if resolved.is_empty() {
-        warn!(client_cn = ?client_cn, host = %host, port = port, "DNS resolution returned no addresses");
-        return json_response(
-            StatusCode::BAD_GATEWAY,
-            &json!({"error": "upstream_unreachable", "host": host}).to_string(),
-        );
-    }
-
-    // SSRF protection: reject if any resolved address is private
-    if block_private_ips {
-        for resolved_addr in &resolved {
-            if is_private_ip(resolved_addr.ip()) {
-                warn!(
-                    client_cn = ?client_cn,
-                    host = %host,
-                    port = port,
-                    resolved_ip = %resolved_addr.ip(),
-                    reason = "private_ip_blocked",
-                    "Request denied: host resolves to private IP"
-                );
-                return json_response(
-                    StatusCode::FORBIDDEN,
-                    &json!({"error": "private_ip_blocked", "host": host}).to_string(),
-                );
-            }
-        }
-    }
-
-    // Connect to the already-resolved address (no second DNS lookup)
-    let stream = match tokio::time::timeout(
-        Duration::from_millis(connect_timeout_ms),
-        tokio::net::TcpStream::connect(resolved.as_slice()),
-    )
-    .await
-    {
-        Ok(Ok(s)) => s,
-        Ok(Err(e)) => {
-            warn!(host = %host, error = %e, "Upstream unreachable");
-            return json_response(
-                StatusCode::BAD_GATEWAY,
-                &json!({"error": "upstream_unreachable", "host": host}).to_string(),
-            );
-        }
-        Err(_) => {
-            warn!(host = %host, "Upstream connect timeout");
-            return json_response(
-                StatusCode::GATEWAY_TIMEOUT,
-                &json!({"error": "upstream_timeout", "host": host}).to_string(),
-            );
-        }
-    };
-
-    // Use hyper to forward the request
     let io = hyper_util::rt::TokioIo::new(stream);
     let (mut sender, conn) = match hyper::client::conn::http1::handshake(io).await {
         Ok(r) => r,
