@@ -202,7 +202,11 @@ pub async fn resolve_and_connect(
     opts: &ConnOpts,
     client_cn: &Option<String>,
 ) -> Result<TcpStream, Response<BoxBody>> {
-    let addr = format!("{}:{}", host, port);
+    let addr = if host.contains(':') && !host.starts_with('[') {
+        format!("[{}]:{}", host, port)
+    } else {
+        format!("{}:{}", host, port)
+    };
 
     let resolved: Vec<std::net::SocketAddr> = match tokio::net::lookup_host(&addr).await {
         Ok(addrs) => addrs.collect(),

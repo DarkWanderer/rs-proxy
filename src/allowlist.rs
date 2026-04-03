@@ -78,6 +78,14 @@ fn strip_port(host: &str) -> &str {
         }
         return host;
     }
+
+    // If there is more than one colon and no brackets, it's likely an
+    // unbracketed IPv6 literal (e.g. "::1"). Do not strip.
+    let colons = host.chars().filter(|&c| c == ':').count();
+    if colons > 1 {
+        return host;
+    }
+
     if let Some(pos) = host.rfind(':') {
         &host[..pos]
     } else {
