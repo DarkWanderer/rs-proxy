@@ -187,6 +187,15 @@ fn adv_allowlist_is_allowed_matched_rule_consistency() {
     }
 }
 
+#[test]
+fn adv_allowlist_unbracketed_ipv6() {
+    // Ensure that unbracketed IPv6 literals don't get mangled by strip_port
+    // (currently they do, returning "::" for "::1").
+    let al = allowlist(&["::1"]);
+    // This is currently expected to FAIL if strip_port isn't fixed
+    assert!(al.is_allowed("::1"));
+}
+
 // ── CONNECT authority parser ──────────────────────────────────────────────────
 
 #[test]
@@ -321,6 +330,24 @@ fn adv_connect_multiple_at_signs() {
     assert_eq!(port, 443);
 }
 
+#[test]
+fn adv_connect_userinfo_with_colon() {
+    // "user:pass@host:port" — should still extract the correct port
+    let r = parse_connect_authority("user:pass@example.com:443");
+    assert!(r.is_some());
+    let (host, port) = r.unwrap();
+    assert_eq!(host, "user:pass@example.com");
+    assert_eq!(port, 443);
+}
+
+#[test]
+fn adv_security_ipv4_compatible_ipv6() {
+    // ::127.0.0.1 is an IPv4-compatible IPv6 address.
+    // While deprecated, some stacks might still resolve it as loopback.
+    let ip: std::net::IpAddr = "::127.0.0.1".parse().unwrap();
+    assert!(gatekeeper::security::is_private_ip(ip));
+}
+
 // ── Domain rule validation ────────────────────────────────────────────────────
 
 #[test]
@@ -409,6 +436,14 @@ fn adv_validate_unicode_labels_do_not_panic() {
     let _ = validate_domain_rule("*.例え.jp");
 }
 
+#[test]
+fn adv_validate_punycode_mixed_case() {
+    // Punycode rules are case-insensitive by normalization.
+    let al = allowlist(&["xn--NXASMQ6B.com"]);
+    assert!(al.is_allowed("xn--nxasmq6b.com"));
+    assert!(al.is_allowed("XN--NXASMQ6B.COM"));
+}
+
 // ── PAC generation ────────────────────────────────────────────────────────────
 
 #[test]
@@ -460,7 +495,7 @@ fn adv_pac_brace_balance() {
 }
 
 #[test]
-fn adv_pac_wildcard_rule_uses_dns_domain_is() {
+fn adv_pac_wildcard_uses_dns_domain_is() {
     let al = allowlist(&["*.crates.io"]);
     let pac = generate_pac(&al, "proxy.internal:3128");
     assert!(
@@ -471,6 +506,18 @@ fn adv_pac_wildcard_rule_uses_dns_domain_is() {
         !pac.contains("host === \".crates.io\""),
         "wildcard should not use exact match"
     );
+}
+
+#[test]
+fn adv_pac_wildcard_apex_discrepancy() {
+    // Current gatekeeper behavior: *.example.com does NOT match example.com.
+    // PAC behavior: dnsDomainIs(host, ".example.com") DOES match example.com in
+    // many browser implementations. This test documents the current state.
+    let al = allowlist(&["*.example.com"]);
+    assert!(!al.is_allowed("example.com"));
+    let pac = generate_pac(&al, "proxy.internal:3128");
+    // PAC script will use .example.com as the suffix
+    assert!(pac.contains("\".example.com\""));
 }
 
 #[test]

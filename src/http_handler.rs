@@ -83,6 +83,28 @@ pub async fn handle_http(
         "Request allowed"
     );
 
+    // Consume and buffer the body, enforcing the configured size limit.
+    let (mut parts, body) = req.into_parts();
+    let body_bytes = {
+        use http_body_util::Limited;
+        let limited = Limited::new(body, opts.max_request_body_bytes as usize);
+        match limited.collect().await {
+            Ok(collected) => collected.to_bytes(),
+            Err(_) => {
+                warn!(
+                    client_cn = ?client_cn,
+                    host = %host,
+                    reason = "request_body_too_large",
+                    "Request body exceeded limit"
+                );
+                return json_response(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    &json!({"error": "request_body_too_large"}).to_string(),
+                );
+            }
+        }
+    };
+
     let stream = match crate::proxy::resolve_and_connect(&host, port, opts, &client_cn).await {
         Ok(s) => s,
         Err(resp) => return resp,
@@ -108,8 +130,6 @@ pub async fn handle_http(
 
     // Rebuild request without proxy absolute URI
     let path = uri.path_and_query().map(|p| p.as_str()).unwrap_or("/");
-
-    let (mut parts, body) = req.into_parts();
     parts.uri = path.parse().unwrap_or_else(|_| "/".parse().unwrap());
 
     // Always set Host header to match the URI to prevent host header smuggling.
@@ -123,7 +143,10 @@ pub async fn handle_http(
         parts.headers.remove(*header);
     }
 
-    let new_req = Request::from_parts(parts, body);
+    let buffered_body: BoxBody = http_body_util::Full::new(body_bytes)
+        .map_err(|never| match never {})
+        .boxed();
+    let new_req = Request::from_parts(parts, buffered_body);
 
     match sender.send_request(new_req).await {
         Ok(resp) => {

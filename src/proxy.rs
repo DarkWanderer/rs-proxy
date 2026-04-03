@@ -178,6 +178,7 @@ async fn handle_tls_connection(
         idle_timeout_ms: state.config.proxy.idle_timeout_ms,
         block_private_ips: state.config.proxy.block_private_ips,
         allowed_connect_ports: state.config.proxy.allowed_connect_ports.clone(),
+        max_request_body_bytes: state.config.proxy.max_request_body_bytes,
     };
     drop(state);
 
@@ -190,6 +191,7 @@ pub struct ConnOpts {
     pub idle_timeout_ms: u64,
     pub block_private_ips: bool,
     pub allowed_connect_ports: Vec<u16>,
+    pub max_request_body_bytes: u64,
 }
 
 /// Resolve a host:port via DNS, check for private IPs, and connect with a timeout.
@@ -200,7 +202,11 @@ pub async fn resolve_and_connect(
     opts: &ConnOpts,
     client_cn: &Option<String>,
 ) -> Result<TcpStream, Response<BoxBody>> {
-    let addr = format!("{}:{}", host, port);
+    let addr = if host.contains(':') && !host.starts_with('[') {
+        format!("[{}]:{}", host, port)
+    } else {
+        format!("{}:{}", host, port)
+    };
 
     let resolved: Vec<std::net::SocketAddr> = match tokio::net::lookup_host(&addr).await {
         Ok(addrs) => addrs.collect(),

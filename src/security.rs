@@ -48,8 +48,8 @@ fn is_private_ipv6(ip: Ipv6Addr) -> bool {
         || ip.is_unspecified()  // ::
         || is_ipv6_ula(&ip)     // fc00::/7 (unique local)
         || is_ipv6_link_local(&ip) // fe80::/10
-        // Check if it's an IPv4-mapped IPv6 (::ffff:x.x.x.x)
-        || match ip.to_ipv4_mapped() {
+        // Check if it's an IPv4-mapped or compatible IPv6 (::ffff:x.x.x.x or ::x.x.x.x)
+        || match ip.to_ipv4() {
             Some(v4) => is_private_ipv4(v4),
             None => false,
         }

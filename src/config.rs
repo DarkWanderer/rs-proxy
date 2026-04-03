@@ -26,6 +26,9 @@ pub struct ProxyConfig {
     /// Restrict CONNECT to these ports. Empty list means all ports allowed.
     #[serde(default = "default_allowed_connect_ports")]
     pub allowed_connect_ports: Vec<u16>,
+    /// Maximum request body size in bytes for HTTP forward proxy. Default: 10 MB.
+    #[serde(default = "default_max_request_body_bytes")]
+    pub max_request_body_bytes: u64,
 }
 
 fn default_max_connections() -> usize {
@@ -42,6 +45,9 @@ fn default_block_private_ips() -> bool {
 }
 fn default_allowed_connect_ports() -> Vec<u16> {
     vec![443, 8443]
+}
+fn default_max_request_body_bytes() -> u64 {
+    10 * 1024 * 1024 // 10 MB
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -140,6 +146,14 @@ pub fn validate_domain_rule(domain: &str) -> anyhow::Result<()> {
             ));
         }
         validate_hostname(rest, domain)?;
+        // Warn about overly broad wildcard rules (e.g. *.com, *.net)
+        // that cover an entire TLD — likely a misconfiguration.
+        if rest.split('.').count() < 2 {
+            tracing::warn!(
+                rule = %domain,
+                "Wildcard domain rule covers entire TLD — verify this is intentional"
+            );
+        }
     } else if domain.contains('*') {
         return Err(anyhow::anyhow!(
             "Invalid wildcard pattern '{}': wildcard only allowed as leftmost label (*.example.com)",
@@ -206,6 +220,7 @@ mod tests {
                 pac_proxy_addr: pac_proxy_addr.map(|s| s.to_string()),
                 block_private_ips: true,
                 allowed_connect_ports: vec![443, 8443],
+                max_request_body_bytes: 10 * 1024 * 1024,
             },
             tls: TlsConfig {
                 server_cert: "cert.pem".into(),
@@ -315,22 +330,5 @@ domains = ["*"]
     #[test]
     fn validate_domain_rule_double_wildcard_rejected() {
         assert!(validate_domain_rule("*.*.example.com").is_err());
-    }
-}
-
-// hostname crate shim — just use std
-mod hostname {
-    pub fn get() -> std::io::Result<std::ffi::OsString> {
-        let mut buf = [0u8; 256];
-        unsafe {
-            if libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len()) == 0 {
-                let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-                Ok(std::ffi::OsString::from(
-                    std::str::from_utf8(&buf[..len]).unwrap_or("localhost"),
-                ))
-            } else {
-                Err(std::io::Error::last_os_error())
-            }
-        }
     }
 }

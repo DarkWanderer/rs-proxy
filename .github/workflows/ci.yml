@@ -71,6 +71,43 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+  security:
+    name: Cargo Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+
+      - name: Run cargo audit
+        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          RUSTC_WRAPPER: ""
+
+  deny:
+    name: Cargo Deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@2f388922703f86d338d8d1e86e4cedef98b9e790 # cargo-deny
+        with:
+          tool: cargo-deny
+
+      - name: Run cargo deny
+        run: cargo deny check
+        env:
+          RUSTC_WRAPPER: ""
+
   e2e:
     name: End-to-End
     runs-on: ubuntu-latest
@@ -95,13 +132,18 @@ jobs:
           cd example
           ../target/release/gatekeeper --config gatekeeper.toml &
           echo $! > /tmp/gatekeeper.pid
-          # Wait for the proxy to finish binding
-          sleep 1
+          # Wait for the proxy to finish binding with a retry loop
+          for i in $(seq 1 30); do
+            if curl -sf --max-time 1 http://127.0.0.1:3128/proxy.pac -o /dev/null 2>/dev/null; then
+              break
+            fi
+            sleep 0.1
+          done
 
       - name: Test HTTPS via proxy to google.com
         run: |
           cd example
-          curl -sf \
+          curl -v \
             --max-time 30 \
             --proxy https://127.0.0.1:3128 \
             --proxy-cacert certs/ca.crt \
@@ -109,6 +151,32 @@ jobs:
             --proxy-key certs/client.key \
             https://www.google.com \
             -o /dev/null
+
+      - name: Test PAC endpoint responds with 200
+        run: |
+          curl -sv --max-time 10 http://127.0.0.1:3128/proxy.pac -o /dev/null
+
+      - name: Test denied domain returns 403
+        run: |
+          cd example
+          # evil.example.com is not in the allowlist — expect 403
+          # Using %{http_connect} because %{http_code} is 000 when CONNECT tunnel fails
+          response=$(curl -v -s -o /dev/null -w "%{http_connect}" \
+            --max-time 10 \
+            --proxy https://127.0.0.1:3128 \
+            --proxy-cacert certs/ca.crt \
+            --proxy-cert certs/client.crt \
+            --proxy-key certs/client.key \
+            https://evil.example.com/ || true)
+          test "$response" = "403" || (echo "Expected 403 for denied domain, got $response" && exit 1)
+
+      - name: Test plaintext non-PAC request returns 403
+        run: |
+          # Non-PAC path over plaintext should be rejected
+          response=$(curl -sv -o /dev/null -w "%{http_code}" \
+            --max-time 10 \
+            http://127.0.0.1:3128/not-pac || true)
+          test "$response" = "403" || (echo "Expected 403 for non-PAC plaintext request, got $response" && exit 1)
 
       - name: Stop proxy
         if: always()

@@ -42,6 +42,18 @@ path = "fuzz_targets/pac_generation.rs"
 test = false
 doc = false
 
+[[bin]]
+name = "escape_js"
+path = "fuzz_targets/escape_js.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "der_cn"
+path = "fuzz_targets/der_cn.rs"
+test = false
+doc = false
+
 [profile.release]
 panic = "abort"
 

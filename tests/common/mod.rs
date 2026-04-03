@@ -21,6 +21,9 @@ pub struct TestProxyConfig<'a> {
     pub allowlist: &'a [&'a str],
     pub connect_timeout_ms: u64,
     pub idle_timeout_ms: u64,
+    pub block_private_ips: bool,
+    pub allowed_connect_ports: Vec<u16>,
+    pub max_connections: usize,
 }
 
 impl Default for TestProxyConfig<'_> {
@@ -29,6 +32,9 @@ impl Default for TestProxyConfig<'_> {
             allowlist: &[],
             connect_timeout_ms: 2000,
             idle_timeout_ms: 30000,
+            block_private_ips: false,
+            allowed_connect_ports: vec![],
+            max_connections: 1024,
         }
     }
 }
@@ -62,13 +68,27 @@ pub async fn spawn_proxy_with(pki: &TestPkiOwned, cfg: TestProxyConfig<'_>) -> T
         .collect::<Vec<_>>()
         .join("\n");
 
+    let ports_toml = if cfg.allowed_connect_ports.is_empty() {
+        "[]".to_string()
+    } else {
+        format!(
+            "[{}]",
+            cfg.allowed_connect_ports
+                .iter()
+                .map(|p| p.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
+
     let config_content = format!(
         r#"[proxy]
 bind = "{addr}"
 connect_timeout_ms = {connect_timeout}
 idle_timeout_ms = {idle_timeout}
-block_private_ips = false
-allowed_connect_ports = []
+block_private_ips = {block_private_ips}
+max_connections = {max_connections}
+allowed_connect_ports = {ports}
 
 [tls]
 server_cert = "{server_cert}"
@@ -87,6 +107,9 @@ format = "pretty"
         addr = addr,
         connect_timeout = cfg.connect_timeout_ms,
         idle_timeout = cfg.idle_timeout_ms,
+        block_private_ips = cfg.block_private_ips,
+        max_connections = cfg.max_connections,
+        ports = ports_toml,
         server_cert = pki.server_cert_path.display(),
         server_key = pki.server_key_path.display(),
         ca_cert = pki.ca_cert_path.display(),
@@ -132,23 +155,20 @@ pub fn build_client_tls_config_with_cert(
     key_path: &PathBuf,
     ca_path: &PathBuf,
 ) -> Arc<rustls::ClientConfig> {
-    use rustls_pemfile::{certs, private_key};
-    use std::io::BufReader;
+    use rustls_pki_types::pem::PemObject;
+    use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 
-    let cert_file = std::fs::File::open(cert_path).unwrap();
-    let cert_chain: Vec<rustls::pki_types::CertificateDer<'static>> =
-        certs(&mut BufReader::new(cert_file))
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
+    let cert_chain: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(cert_path)
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
 
-    let key_file = std::fs::File::open(key_path).unwrap();
-    let key = private_key(&mut BufReader::new(key_file)).unwrap().unwrap();
+    let key = PrivateKeyDer::from_pem_file(key_path).unwrap();
 
-    let ca_file = std::fs::File::open(ca_path).unwrap();
-    let ca_certs: Vec<rustls::pki_types::CertificateDer<'static>> =
-        certs(&mut BufReader::new(ca_file))
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
+    let ca_certs: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(ca_path)
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
 
     let mut root_store = rustls::RootCertStore::empty();
     for cert in ca_certs {

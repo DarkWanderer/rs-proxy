@@ -52,14 +52,13 @@ async fn tls_connect_no_cert(
     proxy_addr: std::net::SocketAddr,
     ca_path: &std::path::PathBuf,
 ) -> Result<(), String> {
-    use rustls_pemfile::certs;
-    use std::io::BufReader;
+    use rustls_pki_types::pem::PemObject;
+    use rustls_pki_types::CertificateDer;
 
-    let ca_file = std::fs::File::open(ca_path).map_err(|e| e.to_string())?;
-    let ca_certs: Vec<rustls::pki_types::CertificateDer<'static>> =
-        certs(&mut BufReader::new(ca_file))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
+    let ca_certs: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(ca_path)
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
 
     let mut root_store = rustls::RootCertStore::empty();
     for cert in ca_certs {
