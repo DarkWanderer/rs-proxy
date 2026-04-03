@@ -79,7 +79,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Run cargo audit
-        uses: rustsec/audit-check@89567450c4bf5d65dcb2f3f35b84a44e10e8ea6b # v2.0.0
+        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -91,7 +91,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Install cargo-deny
-        uses: EmbarkStudios/cargo-deny-action@34899fc7ba81ca6868d5aa5d15b5a4b36bef8f8c # v2.0.11
+        uses: EmbarkStudios/cargo-deny-action@9b7d65878c2d28c8e3c16e30bf555c29abe505bd # v2.0.11
         with:
           command: check
 
@@ -130,7 +130,7 @@ jobs:
       - name: Test HTTPS via proxy to google.com
         run: |
           cd example
-          curl -sf \
+          curl -v \
             --max-time 30 \
             --proxy https://127.0.0.1:3128 \
             --proxy-cacert certs/ca.crt \
@@ -141,27 +141,27 @@ jobs:
 
       - name: Test PAC endpoint responds with 200
         run: |
-          curl -sf --max-time 10 http://127.0.0.1:3128/proxy.pac -o /dev/null
+          curl -sv --max-time 10 http://127.0.0.1:3128/proxy.pac -o /dev/null
 
       - name: Test denied domain returns 403
         run: |
           cd example
           # evil.example.com is not in the allowlist — expect 403
-          response=$(curl -s -o /dev/null -w "%{http_code}" \
+          response=$(curl -v -s -o /dev/null -w "%{http_code}" \
             --max-time 10 \
             --proxy https://127.0.0.1:3128 \
             --proxy-cacert certs/ca.crt \
             --proxy-cert certs/client.crt \
             --proxy-key certs/client.key \
-            https://evil.example.com/ 2>/dev/null || true)
+            https://evil.example.com/ || true)
           test "$response" = "403" || (echo "Expected 403 for denied domain, got $response" && exit 1)
 
       - name: Test plaintext non-PAC request returns 403
         run: |
           # Non-PAC path over plaintext should be rejected
-          response=$(curl -s -o /dev/null -w "%{http_code}" \
+          response=$(curl -sv -o /dev/null -w "%{http_code}" \
             --max-time 10 \
-            http://127.0.0.1:3128/not-pac 2>/dev/null || true)
+            http://127.0.0.1:3128/not-pac || true)
           test "$response" = "403" || (echo "Expected 403 for non-PAC plaintext request, got $response" && exit 1)
 
       - name: Stop proxy
