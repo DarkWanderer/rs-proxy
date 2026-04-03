@@ -81,13 +81,12 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-
       - name: Run cargo audit
         uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          RUSTC_WRAPPER: ""
 
   deny:
     name: Cargo Deny
@@ -100,9 +99,12 @@ jobs:
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
       - name: Install cargo-deny
-        uses: EmbarkStudios/cargo-deny-action@43cf000bced7a828a6e01af0596dd7e99b5b4e13 # v2.0.12
+        uses: taiki-e/install-action@2f388922703f86d338d8d1e86e4cedef98b9e790 # cargo-deny
         with:
-          command: check
+          tool: cargo-deny
+
+      - name: Run cargo deny
+        run: cargo deny check
         env:
           RUSTC_WRAPPER: ""
 
