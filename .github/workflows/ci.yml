@@ -181,3 +181,27 @@ jobs:
       - name: Stop proxy
         if: always()
         run: kill "$(cat /tmp/gatekeeper.pid)" 2>/dev/null || true
+
+  fuzz:
+    name: Fuzz
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: nightly
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
+
+      - name: Install cargo-fuzz
+        run: cargo +nightly install cargo-fuzz
+
+      - name: Run fuzz targets
+        run: |
+          for target in allowlist connect_authority domain_validation pac_generation escape_js der_cn; do
+            cargo +nightly fuzz run "$target" -- -max_total_time=30
+          done
