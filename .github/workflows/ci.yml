@@ -72,7 +72,7 @@ jobs:
         run: cargo fmt --all -- --check
 
   security:
-    name: Security audit
+    name: Cargo Audit
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -84,7 +84,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
   deny:
-    name: Dependency licenses and advisories
+    name: Cargo Deny
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
