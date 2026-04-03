@@ -178,6 +178,7 @@ async fn handle_tls_connection(
         idle_timeout_ms: state.config.proxy.idle_timeout_ms,
         block_private_ips: state.config.proxy.block_private_ips,
         allowed_connect_ports: state.config.proxy.allowed_connect_ports.clone(),
+        max_request_body_bytes: state.config.proxy.max_request_body_bytes,
     };
     drop(state);
 
@@ -190,6 +191,7 @@ pub struct ConnOpts {
     pub idle_timeout_ms: u64,
     pub block_private_ips: bool,
     pub allowed_connect_ports: Vec<u16>,
+    pub max_request_body_bytes: u64,
 }
 
 /// Resolve a host:port via DNS, check for private IPs, and connect with a timeout.

@@ -267,3 +267,118 @@ async fn i15_concurrent_connections_limit() {
         results
     );
 }
+
+/// I16: CONNECT to a domain that resolves to a private IP is blocked when block_private_ips = true
+#[tokio::test]
+async fn i16_connect_ssrf_blocked() {
+    let pki = generate_test_pki();
+    // "localhost" resolves to 127.0.0.1 which is private
+    let proxy = spawn_proxy_with(
+        &pki,
+        TestProxyConfig {
+            allowlist: &["localhost"],
+            block_private_ips: true,
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let config = build_client_tls_config(&pki);
+    let status = send_connect_and_get_status(proxy.addr, "localhost", 443, config).await;
+    assert_eq!(
+        status, 403,
+        "Expected 403 private_ip_blocked for CONNECT to localhost"
+    );
+}
+
+/// I17: CONNECT to a disallowed port is rejected with 403
+#[tokio::test]
+async fn i17_connect_port_not_allowed() {
+    let pki = generate_test_pki();
+    let (echo_port, _echo) = spawn_mock_tcp_echo_server().await;
+
+    // Only allow port 443; echo_port is ephemeral and will not be 443
+    let proxy = spawn_proxy_with(
+        &pki,
+        TestProxyConfig {
+            allowlist: &["localhost"],
+            allowed_connect_ports: vec![443],
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let config = build_client_tls_config(&pki);
+    let status = send_connect_and_get_status(proxy.addr, "localhost", echo_port, config).await;
+    assert_eq!(status, 403, "Expected 403 port_not_allowed");
+}
+
+/// I18: CONNECT to an allowed port succeeds
+#[tokio::test]
+async fn i18_connect_port_allowed() {
+    let pki = generate_test_pki();
+    let (echo_port, _echo) = spawn_mock_tcp_echo_server().await;
+
+    // Allow the echo port specifically
+    let proxy = spawn_proxy_with(
+        &pki,
+        TestProxyConfig {
+            allowlist: &["localhost"],
+            allowed_connect_ports: vec![echo_port],
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let config = build_client_tls_config(&pki);
+    let status = send_connect_and_get_status(proxy.addr, "localhost", echo_port, config).await;
+    assert_eq!(status, 200, "Expected 200 for allowed port");
+}
+
+/// I19: Connection limit — 3rd connection is dropped when max_connections = 2
+#[tokio::test]
+async fn i19_connection_limit_rejection() {
+    let pki = generate_test_pki();
+
+    let proxy = spawn_proxy_with(
+        &pki,
+        TestProxyConfig {
+            allowlist: &["localhost"],
+            max_connections: 2,
+            idle_timeout_ms: 30000,
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let config = build_client_tls_config(&pki);
+
+    // Open 2 TLS connections and hold them open without sending any HTTP data.
+    // The proxy is waiting for an HTTP request on each, so the semaphore permits
+    // are held for the duration.
+    let connector1 = TlsConnector::from(config.clone());
+    let stream1 = tokio::net::TcpStream::connect(proxy.addr).await.unwrap();
+    let domain = ServerName::try_from("localhost".to_string()).unwrap();
+    let _tls1 = connector1.connect(domain.clone(), stream1).await.unwrap();
+
+    let connector2 = TlsConnector::from(config.clone());
+    let stream2 = tokio::net::TcpStream::connect(proxy.addr).await.unwrap();
+    let _tls2 = connector2.connect(domain.clone(), stream2).await.unwrap();
+
+    // Brief pause to ensure both connections are registered with the semaphore
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // 3rd connection — the proxy drops the TCP stream immediately after accept,
+    // so the TLS handshake fails
+    let connector3 = TlsConnector::from(config.clone());
+    let stream3 = tokio::net::TcpStream::connect(proxy.addr).await.unwrap();
+    let result = connector3.connect(domain, stream3).await;
+    assert!(
+        result.is_err(),
+        "Expected TLS handshake to fail when max_connections is reached"
+    );
+
+    // Keep the first two connections alive until after the assertion
+    drop(_tls1);
+    drop(_tls2);
+}

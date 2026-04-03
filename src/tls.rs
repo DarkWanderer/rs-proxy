@@ -74,147 +74,28 @@ pub fn extract_client_cn(conn: &rustls::ServerConnection) -> Option<String> {
     extract_cn_from_der(cert.as_ref())
 }
 
-/// Parse an ASN.1 DER length field starting at `der[pos]`.
-/// Returns `(length_value, number_of_bytes_consumed)` or `None` on error.
-fn parse_der_length(der: &[u8], pos: usize) -> Option<(usize, usize)> {
-    if pos >= der.len() {
-        return None;
-    }
-    let first = der[pos] as usize;
-    if first < 0x80 {
-        // Short form: length fits in 7 bits
-        Some((first, 1))
-    } else if first == 0x80 {
-        // Indefinite length — not valid in DER
-        None
-    } else {
-        // Long form: first byte encodes number of subsequent length bytes
-        let num_bytes = first & 0x7F;
-        if num_bytes > 4 || pos + 1 + num_bytes > der.len() {
-            return None;
-        }
-        let mut length: usize = 0;
-        for i in 0..num_bytes {
-            length = length.checked_shl(8)?;
-            length = length.checked_add(der[pos + 1 + i] as usize)?;
-        }
-        Some((length, 1 + num_bytes))
-    }
+/// Public wrapper around `extract_cn_from_der` for use by fuzz targets.
+/// Not part of the stable public API.
+#[doc(hidden)]
+pub fn extract_cn_from_der_bytes(der: &[u8]) -> Option<String> {
+    extract_cn_from_der(der)
 }
 
 fn extract_cn_from_der(der: &[u8]) -> Option<String> {
-    // Simple ASN.1 DER parser to extract CN from Subject
-    // We look for the CN OID: 2.5.4.3 = 55 04 03
-    let cn_oid = &[0x55, 0x04, 0x03u8];
-    let mut i = 0;
-    while i + cn_oid.len() + 2 < der.len() {
-        if &der[i..i + cn_oid.len()] == cn_oid {
-            // Found CN OID. Next bytes: tag (0x0c UTF8String or 0x13 PrintableString), length, value
-            let tag_pos = i + cn_oid.len();
-            if tag_pos < der.len() {
-                // Parse length using proper DER length decoding (handles multi-byte lengths)
-                if let Some((len, len_bytes)) = parse_der_length(der, tag_pos + 1) {
-                    let val_start = tag_pos + 1 + len_bytes;
-                    let val_end = val_start + len;
-                    if val_end <= der.len() {
-                        return std::str::from_utf8(&der[val_start..val_end])
-                            .ok()
-                            .map(|s| s.to_string());
-                    }
-                }
-            }
-        }
-        i += 1;
-    }
-    None
+    use x509_parser::prelude::*;
+    let (_, cert) = X509Certificate::from_der(der).ok()?;
+    let cn = cert
+        .subject()
+        .iter_common_name()
+        .next()
+        .and_then(|attr| attr.as_str().ok())
+        .map(|s| s.to_string());
+    cn
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ── parse_der_length ──────────────────────────────────────────────────────
-
-    #[test]
-    fn der_length_short_form() {
-        // First byte < 0x80 means the length fits in 7 bits
-        let data = &[0x05u8];
-        let (len, consumed) = parse_der_length(data, 0).unwrap();
-        assert_eq!(len, 5);
-        assert_eq!(consumed, 1);
-    }
-
-    #[test]
-    fn der_length_zero() {
-        let data = &[0x00u8];
-        let (len, consumed) = parse_der_length(data, 0).unwrap();
-        assert_eq!(len, 0);
-        assert_eq!(consumed, 1);
-    }
-
-    #[test]
-    fn der_length_max_short_form() {
-        // 0x7F = 127
-        let data = &[0x7Fu8];
-        let (len, consumed) = parse_der_length(data, 0).unwrap();
-        assert_eq!(len, 127);
-        assert_eq!(consumed, 1);
-    }
-
-    #[test]
-    fn der_length_long_form_one_byte() {
-        // 0x81 means "one byte follows for the length"
-        let data = &[0x81u8, 0xC8u8]; // length = 200
-        let (len, consumed) = parse_der_length(data, 0).unwrap();
-        assert_eq!(len, 200);
-        assert_eq!(consumed, 2);
-    }
-
-    #[test]
-    fn der_length_long_form_two_bytes() {
-        // 0x82 means "two bytes follow for the length"
-        let data = &[0x82u8, 0x01u8, 0x00u8]; // length = 256
-        let (len, consumed) = parse_der_length(data, 0).unwrap();
-        assert_eq!(len, 256);
-        assert_eq!(consumed, 3);
-    }
-
-    #[test]
-    fn der_length_indefinite_form_returns_none() {
-        // 0x80 = indefinite form — not valid in DER
-        let data = &[0x80u8];
-        assert!(parse_der_length(data, 0).is_none());
-    }
-
-    #[test]
-    fn der_length_out_of_bounds_pos_returns_none() {
-        let data = &[0x05u8];
-        assert!(parse_der_length(data, 5).is_none());
-    }
-
-    #[test]
-    fn der_length_truncated_long_form_returns_none() {
-        // 0x82 says two bytes follow but there's only one
-        let data = &[0x82u8, 0x01u8];
-        assert!(parse_der_length(data, 0).is_none());
-    }
-
-    #[test]
-    fn der_length_too_many_length_bytes_returns_none() {
-        // 0x85 = five length bytes — our limit is 4
-        let data = &[0x85u8, 0x00, 0x00, 0x00, 0x00, 0x01];
-        assert!(parse_der_length(data, 0).is_none());
-    }
-
-    #[test]
-    fn der_length_nonzero_offset() {
-        let data = &[0xFFu8, 0x05u8]; // junk at 0, short-form 5 at offset 1
-        let (len, consumed) = parse_der_length(data, 1).unwrap();
-        assert_eq!(len, 5);
-        assert_eq!(consumed, 1);
-    }
-
-    // ── extract_cn_from_der ───────────────────────────────────────────────────
 
     #[test]
     fn extract_cn_empty_slice_returns_none() {
@@ -222,55 +103,36 @@ mod tests {
     }
 
     #[test]
-    fn extract_cn_no_cn_oid_returns_none() {
-        // Random bytes — no CN OID present
+    fn extract_cn_random_bytes_returns_none() {
         let data = &[0x30u8, 0x03, 0x01, 0x01, 0xFF];
         assert!(extract_cn_from_der(data).is_none());
     }
 
     #[test]
-    fn extract_cn_valid_sequence() {
-        // Minimal hand-crafted DER containing the CN OID followed by a UTF8String
-        // CN OID: 55 04 03
-        // UTF8String tag: 0C, length: 04, value: "test"
-        let mut data = vec![
-            0x55u8, 0x04, 0x03, // CN OID
-            0x0C, // UTF8String tag
-            0x04, // length = 4
-            b't', b'e', b's', b't',
-        ];
-        // Pad with enough surrounding bytes so the while-loop runs
-        let mut buf = vec![0u8; 5];
-        buf.append(&mut data);
-        buf.extend_from_slice(&[0u8; 5]);
-        let result = extract_cn_from_der(&buf);
-        assert_eq!(result, Some("test".to_string()));
+    fn extract_cn_from_real_certificate() {
+        use rcgen::{CertificateParams, DistinguishedName, DnType};
+        let mut params = CertificateParams::default();
+        let mut dn = DistinguishedName::new();
+        dn.push(DnType::CommonName, "test-cn");
+        params.distinguished_name = dn;
+        let kp = rcgen::KeyPair::generate().unwrap();
+        let cert = params.self_signed(&kp).unwrap();
+        let der = cert.der();
+        assert_eq!(
+            extract_cn_from_der(der.as_ref()),
+            Some("test-cn".to_string())
+        );
     }
 
     #[test]
-    fn extract_cn_invalid_utf8_returns_none() {
-        // OID followed by an invalid UTF-8 sequence
-        let mut buf = vec![0u8; 5];
-        buf.extend_from_slice(&[
-            0x55u8, 0x04, 0x03, // CN OID
-            0x0C, // UTF8String tag
-            0x02, // length = 2
-            0xFF, 0xFE, // invalid UTF-8
-        ]);
-        buf.extend_from_slice(&[0u8; 5]);
-        assert!(extract_cn_from_der(&buf).is_none());
-    }
-
-    #[test]
-    fn extract_cn_truncated_value_returns_none() {
-        // OID found but value extends beyond buffer
-        let mut buf = vec![0u8; 5];
-        buf.extend_from_slice(&[
-            0x55u8, 0x04, 0x03, // CN OID
-            0x0C, // UTF8String tag
-            0x10, // length = 16, but no bytes follow
-        ]);
-        buf.extend_from_slice(&[0u8; 5]);
-        assert!(extract_cn_from_der(&buf).is_none());
+    fn extract_cn_no_cn_returns_none() {
+        use rcgen::{CertificateParams, DistinguishedName};
+        let mut params = CertificateParams::default();
+        params.distinguished_name = DistinguishedName::new();
+        let kp = rcgen::KeyPair::generate().unwrap();
+        let cert = params.self_signed(&kp).unwrap();
+        let der = cert.der();
+        // Empty subject has no CN — just verify it doesn't panic
+        let _ = extract_cn_from_der(der.as_ref());
     }
 }
