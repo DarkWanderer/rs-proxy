@@ -93,13 +93,12 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-
       - name: Install cargo-deny
         uses: EmbarkStudios/cargo-deny-action@9b7d65878c2d28c8e3c16e30bf555c29abe505bd # v2.0.11
         with:
           command: check
+        env:
+          RUSTC_WRAPPER: ""
 
   e2e:
     name: End-to-End
@@ -153,8 +152,8 @@ jobs:
         run: |
           cd example
           # evil.example.com is not in the allowlist — expect 403
-          # Using %{proxy_code} because %{http_code} is 000 when CONNECT tunnel fails
-          response=$(curl -v -s -o /dev/null -w "%{proxy_code}" \
+          # Using %{http_connect} because %{http_code} is 000 when CONNECT tunnel fails
+          response=$(curl -v -s -o /dev/null -w "%{http_connect}" \
             --max-time 10 \
             --proxy https://127.0.0.1:3128 \
             --proxy-cacert certs/ca.crt \
