@@ -198,7 +198,9 @@ jobs:
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
       - name: Install cargo-fuzz
-        run: cargo +nightly install cargo-fuzz
+        uses: taiki-e/install-action@2f388922703f86d338d8d1e86e4cedef98b9e790 # cargo-fuzz
+        with:
+          tool: cargo-fuzz
 
       - name: Run fuzz targets
         run: |
