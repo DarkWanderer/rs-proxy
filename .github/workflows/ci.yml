@@ -100,7 +100,7 @@ jobs:
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
       - name: Install cargo-deny
-        uses: EmbarkStudios/cargo-deny-action@9b7d65878c2d28c8e3c16e30bf555c29abe505bd # v2.0.11
+        uses: EmbarkStudios/cargo-deny-action@43cf000bced7a828a6e01af0596dd7e99b5b4e13 # v2.0.12
         with:
           command: check
         env:
