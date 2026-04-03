@@ -78,6 +78,9 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
+
       - name: Run cargo audit
         uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
@@ -89,6 +92,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
       - name: Install cargo-deny
         uses: EmbarkStudios/cargo-deny-action@9b7d65878c2d28c8e3c16e30bf555c29abe505bd # v2.0.11
@@ -147,7 +153,8 @@ jobs:
         run: |
           cd example
           # evil.example.com is not in the allowlist — expect 403
-          response=$(curl -v -s -o /dev/null -w "%{http_code}" \
+          # Using %{proxy_code} because %{http_code} is 000 when CONNECT tunnel fails
+          response=$(curl -v -s -o /dev/null -w "%{proxy_code}" \
             --max-time 10 \
             --proxy https://127.0.0.1:3128 \
             --proxy-cacert certs/ca.crt \
