@@ -1,7 +1,7 @@
 use rustls::server::WebPkiClientVerifier;
 use rustls::ServerConfig;
-use rustls_pemfile::{certs, private_key};
-use std::io::BufReader;
+use rustls_pki_types::pem::PemObject;
+use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -11,36 +11,29 @@ pub fn build_server_tls_config(
     ca_cert: &Path,
 ) -> anyhow::Result<Arc<ServerConfig>> {
     // Load server cert chain
-    let cert_file = std::fs::File::open(server_cert).map_err(|e| {
-        anyhow::anyhow!(
-            "Failed to open server cert '{}': {}",
-            server_cert.display(),
-            e
-        )
-    })?;
-    let mut cert_reader = BufReader::new(cert_file);
-    let cert_chain: Vec<rustls::pki_types::CertificateDer<'static>> = certs(&mut cert_reader)
+    let cert_chain: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(server_cert)
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to open server cert '{}': {}",
+                server_cert.display(),
+                e
+            )
+        })?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| anyhow::anyhow!("Failed to parse server cert: {}", e))?;
 
     // Load server private key
-    let key_file = std::fs::File::open(server_key).map_err(|e| {
+    let private_key = PrivateKeyDer::from_pem_file(server_key).map_err(|e| {
         anyhow::anyhow!(
-            "Failed to open server key '{}': {}",
+            "Failed to parse server key '{}': {}",
             server_key.display(),
             e
         )
     })?;
-    let mut key_reader = BufReader::new(key_file);
-    let private_key = private_key(&mut key_reader)
-        .map_err(|e| anyhow::anyhow!("Failed to parse server key: {}", e))?
-        .ok_or_else(|| anyhow::anyhow!("No private key found in '{}'", server_key.display()))?;
 
     // Load CA cert for client verification
-    let ca_file = std::fs::File::open(ca_cert)
-        .map_err(|e| anyhow::anyhow!("Failed to open CA cert '{}': {}", ca_cert.display(), e))?;
-    let mut ca_reader = BufReader::new(ca_file);
-    let ca_certs: Vec<rustls::pki_types::CertificateDer<'static>> = certs(&mut ca_reader)
+    let ca_certs: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(ca_cert)
+        .map_err(|e| anyhow::anyhow!("Failed to open CA cert '{}': {}", ca_cert.display(), e))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| anyhow::anyhow!("Failed to parse CA cert: {}", e))?;
 

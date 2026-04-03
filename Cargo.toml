@@ -19,7 +19,7 @@ hyper-util = { version = "0.1", features = ["tokio", "client", "client-legacy", 
 http-body-util = "0.1"
 tokio-rustls = "0.26"
 rustls = { version = "0.23", features = ["ring"], default-features = false }
-rustls-pemfile = "2"
+rustls-pki-types = "1"
 toml = "1.1"
 serde = { version = "1", features = ["derive"] }
 tracing = "0.1"
@@ -39,7 +39,6 @@ hyper = { version = "1", features = ["http1", "client"] }
 hyper-util = { version = "0.1", features = ["tokio", "client", "client-legacy", "http1"] }
 http-body-util = "0.1"
 rustls = { version = "0.23", features = ["ring"], default-features = false }
-rustls-pemfile = "2"
 tokio-rustls = "0.26"
 anyhow = "1"
 arc-swap = "1"

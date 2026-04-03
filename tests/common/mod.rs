@@ -155,23 +155,20 @@ pub fn build_client_tls_config_with_cert(
     key_path: &PathBuf,
     ca_path: &PathBuf,
 ) -> Arc<rustls::ClientConfig> {
-    use rustls_pemfile::{certs, private_key};
-    use std::io::BufReader;
+    use rustls_pki_types::pem::PemObject;
+    use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 
-    let cert_file = std::fs::File::open(cert_path).unwrap();
-    let cert_chain: Vec<rustls::pki_types::CertificateDer<'static>> =
-        certs(&mut BufReader::new(cert_file))
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
+    let cert_chain: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(cert_path)
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
 
-    let key_file = std::fs::File::open(key_path).unwrap();
-    let key = private_key(&mut BufReader::new(key_file)).unwrap().unwrap();
+    let key = PrivateKeyDer::from_pem_file(key_path).unwrap();
 
-    let ca_file = std::fs::File::open(ca_path).unwrap();
-    let ca_certs: Vec<rustls::pki_types::CertificateDer<'static>> =
-        certs(&mut BufReader::new(ca_file))
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
+    let ca_certs: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(ca_path)
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
 
     let mut root_store = rustls::RootCertStore::empty();
     for cert in ca_certs {
