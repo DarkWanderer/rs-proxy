@@ -13,3 +13,6 @@ comment:
   layout: "reach,diff,flags,files"
   behavior: default
   require_changes: false
+
+github_checks:
+  annotations: true
