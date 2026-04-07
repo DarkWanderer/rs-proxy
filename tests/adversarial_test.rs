@@ -196,6 +196,18 @@ fn adv_allowlist_unbracketed_ipv6() {
     assert!(al.is_allowed("::1"));
 }
 
+#[test]
+fn adv_allowlist_multibyte_utf8_host_does_not_panic() {
+    // Fuzzer-discovered crash: host with a multi-byte UTF-8 character whose byte
+    // length causes the wildcard suffix slice to land mid-codepoint.
+    // e.g. "あcrates.io" is 12 bytes; suffix ".crates.io" is 10 bytes;
+    // offset 2 falls inside the 3-byte 'あ' → used to panic before the fix.
+    let al = allowlist(&["*.crates.io"]);
+    let _ = al.is_allowed("あcrates.io");
+    let _ = al.is_allowed("ああcrates.io");
+    assert!(!al.is_allowed("あcrates.io"));
+}
+
 // ── CONNECT authority parser ──────────────────────────────────────────────────
 
 #[test]

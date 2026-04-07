@@ -12,13 +12,22 @@ pub struct TempDir {
 
 impl TempDir {
     pub fn new() -> std::io::Result<Self> {
+        use std::sync::atomic::{AtomicU64, Ordering};
         use std::time::{SystemTime, UNIX_EPOCH};
+
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let path =
-            std::env::temp_dir().join(format!("gatekeeper-test-{}-{}", std::process::id(), ts));
+        let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "gatekeeper-test-{}-{}-{}",
+            std::process::id(),
+            ts,
+            seq
+        ));
         std::fs::create_dir_all(&path)?;
         Ok(TempDir { path })
     }

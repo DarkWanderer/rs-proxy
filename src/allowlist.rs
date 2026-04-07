@@ -46,10 +46,12 @@ impl Allowlist {
                     }
                 }
                 DomainRule::Wildcard(suffix) => {
-                    if host.len() > suffix.len()
-                        && host[host.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
-                    {
-                        return Some(format!("*{}", suffix));
+                    if host.len() > suffix.len() {
+                        if let Some(tail) = host.get(host.len() - suffix.len()..) {
+                            if tail.eq_ignore_ascii_case(suffix) {
+                                return Some(format!("*{}", suffix));
+                            }
+                        }
                     }
                 }
             }
