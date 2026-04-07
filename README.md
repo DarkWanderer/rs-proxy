@@ -11,6 +11,7 @@ Clients must present a valid TLS certificate signed by a trusted CA. Every outbo
 - **CONNECT tunneling** — transparent HTTPS passthrough for allowed destinations
 - **HTTP forward proxy** — plain HTTP requests are also filtered and forwarded
 - **PAC file endpoint** — served at `http://<proxy>/proxy.pac` for easy client configuration
+- **ACME / Let's Encrypt** — automatic certificate provisioning and renewal via ACME (no manual cert management required)
 - **Hot reload** — send `SIGHUP` to reload config without dropping connections
 - **Structured logging** — JSON or pretty format, configurable log level
 - **Connection limiting** — configurable semaphore caps concurrent connections
@@ -20,7 +21,7 @@ Clients must present a valid TLS certificate signed by a trusted CA. Every outbo
 ### Prerequisites
 
 - Rust stable toolchain (`rustup` is recommended)
-- A TLS PKI: server certificate/key and a CA certificate for client verification
+- A CA certificate for mTLS client verification (server certificate managed manually or via ACME)
 
 ### Build
 
@@ -31,13 +32,16 @@ cargo build --release
 
 ### Minimal config
 
-Create a TOML config file (see [examples/gatekeeper.toml](examples/gatekeeper.toml) for a fully-commented version):
+Create a TOML config file (see [examples/gatekeeper.toml](examples/gatekeeper.toml) for a fully-commented version).
+
+**Manual TLS** (bring your own certificate):
 
 ```toml
 [proxy]
 bind = "0.0.0.0:3128"
 
 [tls]
+mode        = "manual"
 server_cert = "/etc/gatekeeper/server.crt"
 server_key  = "/etc/gatekeeper/server.key"
 ca_cert     = "/etc/gatekeeper/ca.crt"
@@ -49,6 +53,24 @@ domains = [
     "registry.npmjs.org",
     "*.crates.io",
 ]
+```
+
+**ACME / Let's Encrypt** (automatic certificate provisioning):
+
+```toml
+[proxy]
+bind = "0.0.0.0:443"
+
+[tls]
+mode      = "acme"
+domains   = ["proxy.example.com"]
+email     = "admin@example.com"
+cache_dir = "/var/cache/gatekeeper/acme"
+staging   = false                        # set true to test against Let's Encrypt staging
+ca_cert   = "/etc/gatekeeper/ca.crt"
+
+[allowlist]
+domains = ["github.com", "*.github.com"]
 ```
 
 ### Run
@@ -75,13 +97,32 @@ All configuration lives in a single TOML file. Pass it with `--config` / `-c`.
 
 ### `[tls]`
 
+The `mode` key selects the certificate source. `ca_cert` is required in both modes.
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `mode` | string | `"manual"` (default) or `"acme"` |
+| `ca_cert` | path | CA certificate used to verify client certificates (PEM) |
+
+**`mode = "manual"`** — provide pre-existing certificate files:
+
 | Key | Type | Description |
 |-----|------|-------------|
 | `server_cert` | path | Proxy's own TLS certificate (PEM, chain included) |
 | `server_key` | path | Proxy's own TLS private key (PEM) |
-| `ca_cert` | path | CA certificate used to verify client certificates (PEM) |
 
-mTLS is mandatory — clients without a valid certificate are rejected at the TLS layer.
+**`mode = "acme"`** — automatic provisioning via Let's Encrypt (ACME):
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `domains` | list of strings | Domain names to request certificates for |
+| `email` | string | Contact email sent to the ACME CA |
+| `cache_dir` | path | Directory where the issued certificate and account key are cached |
+| `staging` | bool | `true` to use the Let's Encrypt staging environment (for testing) |
+
+In ACME mode the proxy must be reachable on port 443 from the public internet so that Let's Encrypt can complete the TLS-ALPN-01 challenge. Certificates are renewed automatically in the background; no restart is required.
+
+mTLS is mandatory in both modes — clients without a valid certificate are rejected at the TLS layer.
 
 ### `[allowlist]`
 
@@ -133,25 +174,21 @@ Exact variable names vary by tool. Check your tool's documentation for mTLS/clie
 
 ## Certificate setup
 
-You need three files:
+You always need a CA for mTLS client verification. The server certificate can be managed manually or obtained automatically via ACME.
+
+### CA and client certificates
+
+In both `manual` and `acme` mode you need:
 
 1. **CA certificate** (`ca.crt`) — signs client certificates; the proxy trusts this CA
-2. **Server certificate** (`server.crt`) and **server key** (`server.key`) — the proxy's own identity; clients verify this
-
-A minimal setup using `openssl`:
+2. **Client certificates** — one per service, signed by the CA
 
 ```bash
 # 1. Create a CA
 openssl req -x509 -newkey rsa:4096 -keyout ca.key -out ca.crt -days 3650 -nodes \
     -subj "/CN=Gatekeeper CA"
 
-# 2. Create server cert signed by the CA
-openssl req -newkey rsa:4096 -keyout server.key -out server.csr -nodes \
-    -subj "/CN=proxy.internal"
-openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
-    -out server.crt -days 365
-
-# 3. Create a client cert signed by the same CA
+# 2. Create a client cert signed by the CA
 openssl req -newkey rsa:4096 -keyout client.key -out client.csr -nodes \
     -subj "/CN=my-service"
 openssl x509 -req -in client.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
@@ -159,6 +196,19 @@ openssl x509 -req -in client.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
 ```
 
 The CN of the client certificate is extracted and included in audit log entries.
+
+### Manual server certificate
+
+If you use `mode = "manual"`, create a server certificate signed by your CA:
+
+```bash
+openssl req -newkey rsa:4096 -keyout server.key -out server.csr -nodes \
+    -subj "/CN=proxy.internal"
+openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+    -out server.crt -days 365
+```
+
+In `mode = "acme"` the server certificate is obtained and renewed automatically — no manual steps required.
 
 ## Deployment
 
