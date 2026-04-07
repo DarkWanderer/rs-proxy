@@ -52,9 +52,25 @@ fn default_max_request_body_bytes() -> u64 {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TlsConfig {
-    pub server_cert: PathBuf,
-    pub server_key: PathBuf,
+    #[serde(flatten)]
+    pub mode: TlsMode,
     pub ca_cert: PathBuf,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum TlsMode {
+    Manual {
+        server_cert: PathBuf,
+        server_key: PathBuf,
+    },
+    Acme {
+        domains: Vec<String>,
+        email: String,
+        cache_dir: PathBuf,
+        #[serde(default)]
+        staging: bool,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -223,8 +239,10 @@ mod tests {
                 max_request_body_bytes: 10 * 1024 * 1024,
             },
             tls: TlsConfig {
-                server_cert: "cert.pem".into(),
-                server_key: "key.pem".into(),
+                mode: TlsMode::Manual {
+                    server_cert: "cert.pem".into(),
+                    server_key: "key.pem".into(),
+                },
                 ca_cert: "ca.pem".into(),
             },
             allowlist: AllowlistConfig { domains: vec![] },
@@ -310,6 +328,7 @@ mod tests {
 [proxy]
 bind = "127.0.0.1:3128"
 [tls]
+mode = "manual"
 server_cert = "cert.pem"
 server_key = "key.pem"
 ca_cert = "ca.pem"

@@ -1,0 +1,26 @@
+# Example Gatekeeper configuration using ACME (Let's Encrypt)
+#
+# To use this, you must have a public-facing address and point the
+# configured domains to this server's IP. The proxy must be able
+# to handle TLS ALPN challenges on port 443.
+
+[proxy]
+bind = "0.0.0.0:443"
+
+[tls]
+mode      = "acme"
+domains   = ["proxy.example.com"]
+email     = "admin@example.com"
+cache_dir = "certs/acme_cache"
+staging   = true # Use Let's Encrypt staging environment during testing
+ca_cert   = "certs/ca.crt" # Still requires a CA for mTLS client verification
+
+[allowlist]
+domains = [
+    "google.com",
+    "www.google.com",
+]
+
+[logging]
+level = "info"
+format = "pretty"
