@@ -43,8 +43,8 @@ async fn i7_pac_content_correctness() {
         body
     );
     assert!(
-        body.contains("PROXY 0.0.0.0:0"),
-        "PAC missing default deny: {}",
+        body.contains("DIRECT"),
+        "PAC missing default direct: {}",
         body
     );
 }

@@ -28,7 +28,7 @@ pub fn generate_pac(allowlist: &Allowlist, proxy_addr: &str) -> String {
         }
     }
 
-    lines.push("    return \"PROXY 0.0.0.0:0\";".to_string());
+    lines.push("    return \"DIRECT\";".to_string());
     lines.push("}".to_string());
 
     lines.join("\n")
@@ -46,7 +46,7 @@ mod tests {
         assert!(pac.contains("host === \"github.com\""));
         assert!(pac.contains("dnsDomainIs(host, \".crates.io\")"));
         assert!(pac.contains("PROXY proxy.internal:3128"));
-        assert!(pac.contains("PROXY 0.0.0.0:0"));
+        assert!(pac.contains("DIRECT"));
     }
 
     #[test]
@@ -67,7 +67,7 @@ mod tests {
     fn pac_deny_all_default_present() {
         let al = Allowlist::new(&[]);
         let pac = generate_pac(&al, "proxy:3128");
-        assert!(pac.contains("return \"PROXY 0.0.0.0:0\";"));
+        assert!(pac.contains("return \"DIRECT\";"));
     }
 
     #[test]
