@@ -7,6 +7,7 @@ use arc_swap::ArcSwap;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use serde_json::json;
+use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
 
 use std::sync::Arc;
@@ -42,7 +43,6 @@ impl ProxyState {
         if let Some(mut state) = acme_state {
             let token = cancel_token.clone();
             tokio::spawn(async move {
-                use tokio_stream::StreamExt;
                 loop {
                     tokio::select! {
                         _ = token.cancelled() => {
@@ -95,6 +95,10 @@ impl ProxyServer {
             Ok(new_config) => match ProxyState::new(new_config) {
                 Ok(new_state) => {
                     let domain_count = new_state.allowlist.len();
+                    // Cancel any ACME background task on the old state immediately,
+                    // before the old Arc is released, to prevent two loops racing on
+                    // the same cache directory during connection drain.
+                    self.state.load().cancel_token.cancel();
                     self.state.store(Arc::new(new_state));
                     info!(
                         success = true,

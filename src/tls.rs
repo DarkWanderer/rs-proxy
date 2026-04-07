@@ -7,11 +7,13 @@ use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use std::sync::Arc;
 
+type IoAcmeState = AcmeState<std::io::Error, std::io::Error>;
+
 pub enum ServerTlsConfig {
     Manual(Arc<ServerConfig>),
     Acme {
         config: Arc<ServerConfig>,
-        state: AcmeState<std::io::Error, std::io::Error>,
+        state: IoAcmeState,
     },
 }
 
@@ -47,16 +49,17 @@ pub fn build_server_tls_config(tls_config: &TlsConfig) -> anyhow::Result<ServerT
             server_key,
         } => {
             // Load server cert chain
-            let cert_chain: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(server_cert)
-                .map_err(|e| {
-                    anyhow::anyhow!(
-                        "Failed to open server cert '{}': {}",
-                        server_cert.display(),
-                        e
-                    )
-                })?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| anyhow::anyhow!("Failed to parse server cert: {}", e))?;
+            let cert_chain: Vec<CertificateDer<'static>> =
+                CertificateDer::pem_file_iter(server_cert)
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                            "Failed to open server cert '{}': {}",
+                            server_cert.display(),
+                            e
+                        )
+                    })?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| anyhow::anyhow!("Failed to parse server cert: {}", e))?;
 
             // Load server private key
             let private_key = PrivateKeyDer::from_pem_file(server_key).map_err(|e| {

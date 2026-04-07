@@ -68,7 +68,6 @@ pub enum TlsMode {
         domains: Vec<String>,
         email: String,
         cache_dir: PathBuf,
-        #[serde(default)]
         staging: bool,
     },
 }
@@ -349,5 +348,54 @@ domains = ["*"]
     #[test]
     fn validate_domain_rule_double_wildcard_rejected() {
         assert!(validate_domain_rule("*.*.example.com").is_err());
+    }
+
+    #[test]
+    fn acme_mode_parses_correctly() {
+        let content = r#"
+[proxy]
+bind = "0.0.0.0:443"
+[tls]
+mode      = "acme"
+domains   = ["proxy.example.com"]
+email     = "admin@example.com"
+cache_dir = "/var/cache/acme"
+staging   = true
+ca_cert   = "ca.pem"
+[allowlist]
+domains = []
+"#;
+        let config: Config = toml::from_str(content).unwrap();
+        match config.tls.mode {
+            TlsMode::Acme {
+                ref domains,
+                ref email,
+                ref cache_dir,
+                staging,
+            } => {
+                assert_eq!(domains, &["proxy.example.com"]);
+                assert_eq!(email, "admin@example.com");
+                assert_eq!(cache_dir.as_os_str(), "/var/cache/acme");
+                assert!(staging);
+            }
+            _ => panic!("expected TlsMode::Acme"),
+        }
+    }
+
+    #[test]
+    fn acme_mode_missing_staging_fails() {
+        let content = r#"
+[proxy]
+bind = "0.0.0.0:443"
+[tls]
+mode      = "acme"
+domains   = ["proxy.example.com"]
+email     = "admin@example.com"
+cache_dir = "/var/cache/acme"
+ca_cert   = "ca.pem"
+[allowlist]
+domains = []
+"#;
+        assert!(toml::from_str::<Config>(content).is_err());
     }
 }
