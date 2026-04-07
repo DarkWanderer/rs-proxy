@@ -463,7 +463,7 @@ fn adv_pac_empty_allowlist() {
     let al = allowlist(&[]);
     let pac = generate_pac(&al, "proxy.internal:3128");
     assert!(pac.starts_with("function FindProxyForURL"));
-    assert!(pac.contains("return \"PROXY 0.0.0.0:0\";"));
+    assert!(pac.contains("return \"DIRECT\";"));
 }
 
 #[test]
@@ -494,7 +494,7 @@ fn adv_pac_very_large_allowlist() {
     let al = Allowlist::new(&domains);
     let pac = generate_pac(&al, "proxy.internal:3128");
     assert!(pac.starts_with("function FindProxyForURL"));
-    assert!(pac.contains("return \"PROXY 0.0.0.0:0\";"));
+    assert!(pac.contains("return \"DIRECT\";"));
 }
 
 #[test]
