@@ -13,56 +13,38 @@ permissions:
 
 jobs:
   build:
-    name: Build release binary (${{ matrix.target }})
+    name: Build and publish nightly release
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    strategy:
-      matrix:
-        target:
-          - x86_64-unknown-linux-gnu
-          - x86_64-unknown-linux-musl
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
-          targets: ${{ matrix.target }}
+          targets: x86_64-unknown-linux-gnu,x86_64-unknown-linux-musl
 
       - name: Install musl tools
-        if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get install -y musl-tools
 
-      - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }}
+      - name: Build release binaries
+        run: |
+          cargo build --release --target x86_64-unknown-linux-gnu
+          cargo build --release --target x86_64-unknown-linux-musl
 
-      - name: Rename binary
-        run: cp target/${{ matrix.target }}/release/gatekeeper gatekeeper-${{ matrix.target }}
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: gatekeeper-${{ matrix.target }}
-          path: gatekeeper-${{ matrix.target }}
-
-  publish:
-    name: Publish nightly release
-    runs-on: ubuntu-latest
-    needs: build
-    timeout-minutes: 10
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+      - name: Collect binaries
+        run: |
+          cp target/x86_64-unknown-linux-gnu/release/gatekeeper gatekeeper-x86_64-unknown-linux-gnu
+          cp target/x86_64-unknown-linux-musl/release/gatekeeper gatekeeper-x86_64-unknown-linux-musl
 
       - name: Publish nightly release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete nightly --yes --cleanup-tag --repo ${{ github.repository }} || true
+          gh release delete nightly --yes --cleanup-tag || true
           gh release create nightly \
-            gatekeeper-x86_64-unknown-linux-gnu/gatekeeper-x86_64-unknown-linux-gnu \
-            gatekeeper-x86_64-unknown-linux-musl/gatekeeper-x86_64-unknown-linux-musl \
-            --repo ${{ github.repository }} \
+            gatekeeper-x86_64-unknown-linux-gnu \
+            gatekeeper-x86_64-unknown-linux-musl \
             --title "Nightly" \
             --notes "Nightly build from main branch ($(date -u '+%Y-%m-%d %H:%M UTC'))" \
             --prerelease
