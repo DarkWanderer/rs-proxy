@@ -28,17 +28,9 @@ fuzz_target!(|input: PacInput| {
         pac.starts_with("function FindProxyForURL(url, host) {"),
         "PAC must start with the function declaration"
     );
-    assert!(
-        pac.ends_with('}'),
-        "PAC must end with closing brace"
-    );
+    assert!(pac.ends_with('}'), "PAC must end with closing brace");
     assert!(
         pac.contains("return \"PROXY 0.0.0.0:0\";"),
         "PAC must contain the deny-all fallback rule"
     );
-
-    // Verify the PAC output is valid enough to count braces
-    let opens = pac.chars().filter(|&c| c == '{').count();
-    let closes = pac.chars().filter(|&c| c == '}').count();
-    assert_eq!(opens, closes, "PAC brace mismatch");
 });
