@@ -8,6 +8,7 @@ bind = "0.0.0.0:3128"
 # allowed_connect_ports = [443, 8443]    # Restrict CONNECT to these ports. Empty list = all ports. Default: [443, 8443]
 
 [tls]
+mode        = "manual"
 server_cert = "/etc/gatekeeper/server.crt"   # Proxy's own TLS cert (PEM, may include chain)
 server_key  = "/etc/gatekeeper/server.key"   # Proxy's own TLS private key (PEM)
 ca_cert     = "/etc/gatekeeper/ca.crt"       # CA that signed client certificates (PEM)

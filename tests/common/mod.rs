@@ -91,6 +91,7 @@ max_connections = {max_connections}
 allowed_connect_ports = {ports}
 
 [tls]
+mode = "manual"
 server_cert = "{server_cert}"
 server_key  = "{server_key}"
 ca_cert     = "{ca_cert}"

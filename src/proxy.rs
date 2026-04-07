@@ -1,12 +1,14 @@
 use crate::allowlist::Allowlist;
 use crate::config::Config;
 use crate::pac::generate_pac;
-use crate::tls::{build_server_tls_config, extract_client_cn};
+use crate::tls::{build_server_tls_config, extract_client_cn, ServerTlsConfig};
 use crate::{full_body, json_response, BoxBody};
 use arc_swap::ArcSwap;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use serde_json::json;
+use tokio_stream::StreamExt;
+use tokio_util::sync::CancellationToken;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,24 +23,60 @@ pub struct ProxyState {
     pub allowlist: Arc<Allowlist>,
     pub pac_script: String,
     pub tls_acceptor: TlsAcceptor,
+    pub cancel_token: CancellationToken,
 }
 
 impl ProxyState {
     pub fn new(config: Config) -> anyhow::Result<Self> {
         let allowlist = Arc::new(Allowlist::new(&config.allowlist.domains));
         let pac_script = generate_pac(&allowlist, &config.pac_proxy_addr());
-        let tls_config = build_server_tls_config(
-            &config.tls.server_cert,
-            &config.tls.server_key,
-            &config.tls.ca_cert,
-        )?;
+
+        let server_tls_config = build_server_tls_config(&config.tls)?;
+        let (tls_config, acme_state) = match server_tls_config {
+            ServerTlsConfig::Manual(c) => (c, None),
+            ServerTlsConfig::Acme { config, state } => (config, Some(state)),
+        };
+
         let tls_acceptor = TlsAcceptor::from(tls_config);
+        let cancel_token = CancellationToken::new();
+
+        if let Some(mut state) = acme_state {
+            let token = cancel_token.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        _ = token.cancelled() => {
+                            info!("ACME background task shutting down");
+                            break;
+                        }
+                        event = state.next() => {
+                            match event {
+                                Some(Ok(ok)) => info!(event = ?ok, "ACME event"),
+                                Some(Err(e)) => error!(error = %e, "ACME error"),
+                                None => {
+                                    info!("ACME event stream closed");
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
         Ok(ProxyState {
             config,
             allowlist,
             pac_script,
             tls_acceptor,
+            cancel_token,
         })
+    }
+}
+
+impl Drop for ProxyState {
+    fn drop(&mut self) {
+        self.cancel_token.cancel();
     }
 }
 
@@ -57,6 +95,10 @@ impl ProxyServer {
             Ok(new_config) => match ProxyState::new(new_config) {
                 Ok(new_state) => {
                     let domain_count = new_state.allowlist.len();
+                    // Cancel any ACME background task on the old state immediately,
+                    // before the old Arc is released, to prevent two loops racing on
+                    // the same cache directory during connection drain.
+                    self.state.load().cancel_token.cancel();
                     self.state.store(Arc::new(new_state));
                     info!(
                         success = true,

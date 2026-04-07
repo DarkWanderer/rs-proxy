@@ -11,6 +11,7 @@
 bind = "127.0.0.1:3128"
 
 [tls]
+mode        = "manual"
 server_cert = "certs/server.crt"   # PEM cert chain (server + CA)
 server_key  = "certs/server.key"   # PEM private key
 ca_cert     = "certs/ca.crt"       # CA that signs client certificates

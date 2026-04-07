@@ -1,39 +1,32 @@
+use crate::config::{TlsConfig, TlsMode};
 use rustls::server::WebPkiClientVerifier;
 use rustls::ServerConfig;
+use rustls_acme::acme::LETS_ENCRYPT_STAGING_DIRECTORY;
+use rustls_acme::{caches::DirCache, AcmeConfig, AcmeState};
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
-use std::path::Path;
 use std::sync::Arc;
 
-pub fn build_server_tls_config(
-    server_cert: &Path,
-    server_key: &Path,
-    ca_cert: &Path,
-) -> anyhow::Result<Arc<ServerConfig>> {
-    // Load server cert chain
-    let cert_chain: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(server_cert)
+type IoAcmeState = AcmeState<std::io::Error, std::io::Error>;
+
+pub enum ServerTlsConfig {
+    Manual(Arc<ServerConfig>),
+    Acme {
+        config: Arc<ServerConfig>,
+        state: IoAcmeState,
+    },
+}
+
+pub fn build_server_tls_config(tls_config: &TlsConfig) -> anyhow::Result<ServerTlsConfig> {
+    // Load CA cert for client verification (mTLS)
+    let ca_certs: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(&tls_config.ca_cert)
         .map_err(|e| {
             anyhow::anyhow!(
-                "Failed to open server cert '{}': {}",
-                server_cert.display(),
+                "Failed to open CA cert '{}': {}",
+                tls_config.ca_cert.display(),
                 e
             )
         })?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| anyhow::anyhow!("Failed to parse server cert: {}", e))?;
-
-    // Load server private key
-    let private_key = PrivateKeyDer::from_pem_file(server_key).map_err(|e| {
-        anyhow::anyhow!(
-            "Failed to parse server key '{}': {}",
-            server_key.display(),
-            e
-        )
-    })?;
-
-    // Load CA cert for client verification
-    let ca_certs: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(ca_cert)
-        .map_err(|e| anyhow::anyhow!("Failed to open CA cert '{}': {}", ca_cert.display(), e))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| anyhow::anyhow!("Failed to parse CA cert: {}", e))?;
 
@@ -50,14 +43,71 @@ pub fn build_server_tls_config(
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build client verifier: {}", e))?;
 
-    let config = ServerConfig::builder_with_provider(provider)
-        .with_safe_default_protocol_versions()
-        .map_err(|e| anyhow::anyhow!("Failed to set TLS protocol versions: {}", e))?
-        .with_client_cert_verifier(client_verifier)
-        .with_single_cert(cert_chain, private_key)
-        .map_err(|e| anyhow::anyhow!("Failed to build TLS config: {}", e))?;
+    match &tls_config.mode {
+        TlsMode::Manual {
+            server_cert,
+            server_key,
+        } => {
+            // Load server cert chain
+            let cert_chain: Vec<CertificateDer<'static>> =
+                CertificateDer::pem_file_iter(server_cert)
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                            "Failed to open server cert '{}': {}",
+                            server_cert.display(),
+                            e
+                        )
+                    })?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| anyhow::anyhow!("Failed to parse server cert: {}", e))?;
 
-    Ok(Arc::new(config))
+            // Load server private key
+            let private_key = PrivateKeyDer::from_pem_file(server_key).map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to parse server key '{}': {}",
+                    server_key.display(),
+                    e
+                )
+            })?;
+
+            let config = ServerConfig::builder_with_provider(provider)
+                .with_safe_default_protocol_versions()
+                .map_err(|e| anyhow::anyhow!("Failed to set TLS protocol versions: {}", e))?
+                .with_client_cert_verifier(client_verifier)
+                .with_single_cert(cert_chain, private_key)
+                .map_err(|e| anyhow::anyhow!("Failed to build TLS config: {}", e))?;
+
+            Ok(ServerTlsConfig::Manual(Arc::new(config)))
+        }
+        TlsMode::Acme {
+            domains,
+            email,
+            cache_dir,
+            staging,
+        } => {
+            let mut acme_config = AcmeConfig::new(domains.clone())
+                .contact_push(format!("mailto:{}", email))
+                .cache(DirCache::new(cache_dir.clone()));
+
+            if *staging {
+                acme_config = acme_config.directory(LETS_ENCRYPT_STAGING_DIRECTORY);
+            }
+
+            let state = acme_config.state();
+            let cert_resolver = state.resolver();
+
+            let config = ServerConfig::builder_with_provider(provider)
+                .with_safe_default_protocol_versions()
+                .map_err(|e| anyhow::anyhow!("Failed to set TLS protocol versions: {}", e))?
+                .with_client_cert_verifier(client_verifier)
+                .with_cert_resolver(cert_resolver);
+
+            Ok(ServerTlsConfig::Acme {
+                config: Arc::new(config),
+                state,
+            })
+        }
+    }
 }
 
 /// Extract the client's Common Name from a verified TLS connection.

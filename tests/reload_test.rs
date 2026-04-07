@@ -99,6 +99,7 @@ block_private_ips = false
 allowed_connect_ports = []
 
 [tls]
+mode = "manual"
 server_cert = "{server_cert}"
 server_key  = "{server_key}"
 ca_cert     = "{ca_cert}"
@@ -216,6 +217,7 @@ block_private_ips = false
 allowed_connect_ports = []
 
 [tls]
+mode = "manual"
 server_cert = "{server_cert}"
 server_key  = "{server_key}"
 ca_cert     = "{ca_cert}"
