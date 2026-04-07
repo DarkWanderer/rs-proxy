@@ -27,13 +27,13 @@ jobs:
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@2f388922703f86d338d8d1e86e4cedef98b9e790 # cargo-llvm-cov
+        uses: taiki-e/install-action@ddc7029b5ba1e37640598eb3580cdbefa9662f46 # cargo-llvm-cov
 
       - name: Run tests with coverage
         run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5.5.4
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           files: lcov.info
           fail_ci_if_error: false
@@ -99,7 +99,7 @@ jobs:
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@2f388922703f86d338d8d1e86e4cedef98b9e790 # cargo-deny
+        uses: taiki-e/install-action@c58177f02f1f52eaabb06dc1fd02198c62602f88 # cargo-deny
         with:
           tool: cargo-deny
 
@@ -199,7 +199,7 @@ jobs:
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
       - name: Install cargo-fuzz
-        uses: taiki-e/install-action@2f388922703f86d338d8d1e86e4cedef98b9e790 # cargo-fuzz
+        uses: taiki-e/install-action@82fc405565b9cf90abfe700ba43b4751ce2fe422 # cargo-fuzz
         with:
           tool: cargo-fuzz
 
