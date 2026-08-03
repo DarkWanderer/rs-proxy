@@ -1,7 +1,6 @@
 use crate::config::{TlsConfig, TlsMode};
 use rustls::server::WebPkiClientVerifier;
 use rustls::ServerConfig;
-use rustls_acme::acme::LETS_ENCRYPT_STAGING_DIRECTORY;
 use rustls_acme::{caches::DirCache, AcmeConfig, AcmeState};
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
@@ -85,13 +84,12 @@ pub fn build_server_tls_config(tls_config: &TlsConfig) -> anyhow::Result<ServerT
             cache_dir,
             staging,
         } => {
-            let mut acme_config = AcmeConfig::new(domains.clone())
+            // AcmeConfig::new() defaults to the staging directory regardless of
+            // this flag, so production must be selected explicitly here too.
+            let acme_config = AcmeConfig::new(domains.clone())
                 .contact_push(format!("mailto:{}", email))
-                .cache(DirCache::new(cache_dir.clone()));
-
-            if *staging {
-                acme_config = acme_config.directory(LETS_ENCRYPT_STAGING_DIRECTORY);
-            }
+                .cache(DirCache::new(cache_dir.clone()))
+                .directory_lets_encrypt(!*staging);
 
             let state = acme_config.state();
             let cert_resolver = state.resolver();
