@@ -186,9 +186,19 @@ jobs:
         run: kill "$(cat /tmp/gatekeeper.pid)" 2>/dev/null || true
 
   fuzz:
-    name: Fuzz
+    name: Fuzz (${{ matrix.target }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - allowlist
+          - connect_authority
+          - domain_validation
+          - pac_generation
+          - escape_js
+          - der_cn
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -206,16 +216,5 @@ jobs:
         with:
           tool: cargo-fuzz
 
-      - name: Run fuzz targets
-        run: |
-          failed=""
-          for target in allowlist connect_authority domain_validation pac_generation escape_js der_cn; do
-            echo "::group::fuzz $target"
-            cargo +nightly fuzz run "$target" --target x86_64-unknown-linux-gnu -- -max_total_time=30 \
-              || failed="$failed $target"
-            echo "::endgroup::"
-          done
-          if [ -n "$failed" ]; then
-            echo "::error::Fuzz targets failed:$failed"
-            exit 1
-          fi
+      - name: Run fuzz target
+        run: cargo +nightly fuzz run "${{ matrix.target }}" --target x86_64-unknown-linux-gnu -- -max_total_time=30
