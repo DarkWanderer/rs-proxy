@@ -56,6 +56,9 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --all-features --all-targets -- -D warnings
 
+      - name: Check fuzz workspace
+        run: cargo check --manifest-path fuzz/Cargo.toml --all-targets --locked
+
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
@@ -205,6 +208,14 @@ jobs:
 
       - name: Run fuzz targets
         run: |
+          failed=""
           for target in allowlist connect_authority domain_validation pac_generation escape_js der_cn; do
-            cargo +nightly fuzz run "$target" --target x86_64-unknown-linux-gnu -- -max_total_time=30
+            echo "::group::fuzz $target"
+            cargo +nightly fuzz run "$target" --target x86_64-unknown-linux-gnu -- -max_total_time=30 \
+              || failed="$failed $target"
+            echo "::endgroup::"
           done
+          if [ -n "$failed" ]; then
+            echo "::error::Fuzz targets failed:$failed"
+            exit 1
+          fi

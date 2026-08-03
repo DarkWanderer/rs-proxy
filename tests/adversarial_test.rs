@@ -9,7 +9,7 @@
 use gatekeeper::allowlist::Allowlist;
 use gatekeeper::config::validate_domain_rule;
 use gatekeeper::connect_handler::parse_connect_authority;
-use gatekeeper::pac::generate_pac;
+use gatekeeper::pac::{generate_pac, PAC_FALLBACK_RULE};
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -463,7 +463,7 @@ fn adv_pac_empty_allowlist() {
     let al = allowlist(&[]);
     let pac = generate_pac(&al, "proxy.internal:3128");
     assert!(pac.starts_with("function FindProxyForURL"));
-    assert!(pac.contains("return \"DIRECT\";"));
+    assert!(pac.contains(PAC_FALLBACK_RULE));
 }
 
 #[test]
@@ -494,7 +494,7 @@ fn adv_pac_very_large_allowlist() {
     let al = Allowlist::new(&domains);
     let pac = generate_pac(&al, "proxy.internal:3128");
     assert!(pac.starts_with("function FindProxyForURL"));
-    assert!(pac.contains("return \"DIRECT\";"));
+    assert!(pac.contains(PAC_FALLBACK_RULE));
 }
 
 #[test]
