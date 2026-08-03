@@ -1,6 +1,9 @@
 use crate::allowlist::{Allowlist, DomainRule};
 use crate::security::escape_js;
 
+/// The fallback rule appended after all allowlist rules: route everything else DIRECT.
+pub const PAC_FALLBACK_RULE: &str = "return \"DIRECT\";";
+
 pub fn generate_pac(allowlist: &Allowlist, proxy_addr: &str) -> String {
     let escaped_proxy = escape_js(proxy_addr);
     let mut lines = vec![
@@ -46,7 +49,7 @@ mod tests {
         assert!(pac.contains("host === \"github.com\""));
         assert!(pac.contains("dnsDomainIs(host, \".crates.io\")"));
         assert!(pac.contains("PROXY proxy.internal:3128"));
-        assert!(pac.contains("DIRECT"));
+        assert!(pac.contains(PAC_FALLBACK_RULE));
     }
 
     #[test]
@@ -67,7 +70,7 @@ mod tests {
     fn pac_deny_all_default_present() {
         let al = Allowlist::new(&[]);
         let pac = generate_pac(&al, "proxy:3128");
-        assert!(pac.contains("return \"DIRECT\";"));
+        assert!(pac.contains(PAC_FALLBACK_RULE));
     }
 
     #[test]

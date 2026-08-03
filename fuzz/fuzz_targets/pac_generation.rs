@@ -4,13 +4,13 @@
 //! verifying:
 //! - No panics
 //! - Output always starts with the required function header
-//! - Output always ends with the fallback PROXY rule and closing brace
+//! - Output always ends with the DIRECT fallback rule and closing brace
 //! - Domains containing `"` do not break the JS string literals
 #![no_main]
 
 use arbitrary::Arbitrary;
 use gatekeeper::allowlist::Allowlist;
-use gatekeeper::pac::generate_pac;
+use gatekeeper::pac::{PAC_FALLBACK_RULE, generate_pac};
 use libfuzzer_sys::fuzz_target;
 
 #[derive(Arbitrary, Debug)]
@@ -30,7 +30,7 @@ fuzz_target!(|input: PacInput| {
     );
     assert!(pac.ends_with('}'), "PAC must end with closing brace");
     assert!(
-        pac.contains("return \"PROXY 0.0.0.0:0\";"),
-        "PAC must contain the deny-all fallback rule"
+        pac.contains(PAC_FALLBACK_RULE),
+        "PAC must contain the DIRECT fallback rule"
     );
 });
