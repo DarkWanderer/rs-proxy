@@ -12,6 +12,7 @@ pub enum ServerTlsConfig {
     Manual(Arc<ServerConfig>),
     Acme {
         config: Arc<ServerConfig>,
+        challenge_config: Arc<ServerConfig>,
         state: IoAcmeState,
     },
 }
@@ -94,6 +95,12 @@ pub fn build_server_tls_config(tls_config: &TlsConfig) -> anyhow::Result<ServerT
             let state = acme_config.state();
             let cert_resolver = state.resolver();
 
+            // TLS-ALPN-01 challenge connections (RFC 8737) need a separate ServerConfig:
+            // no client auth, and "acme-tls/1" negotiated via ALPN. Without it, rustls
+            // silently completes the handshake with no ALPN protocol negotiated instead
+            // of rejecting it, so Let's Encrypt fails the authorization every time.
+            let challenge_config = state.challenge_rustls_config_with_provider(provider.clone());
+
             let config = ServerConfig::builder_with_provider(provider)
                 .with_safe_default_protocol_versions()
                 .map_err(|e| anyhow::anyhow!("Failed to set TLS protocol versions: {}", e))?
@@ -102,6 +109,7 @@ pub fn build_server_tls_config(tls_config: &TlsConfig) -> anyhow::Result<ServerT
 
             Ok(ServerTlsConfig::Acme {
                 config: Arc::new(config),
+                challenge_config,
                 state,
             })
         }

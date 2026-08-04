@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio_rustls::TlsAcceptor;
+use tokio_rustls::{LazyConfigAcceptor, TlsAcceptor};
 use tracing::{error, info, warn};
 
 /// Shared proxy state, hot-swappable on SIGHUP.
@@ -23,6 +23,7 @@ pub struct ProxyState {
     pub allowlist: Arc<Allowlist>,
     pub pac_script: String,
     pub tls_acceptor: TlsAcceptor,
+    pub acme_challenge_config: Option<Arc<rustls::ServerConfig>>,
     pub cancel_token: CancellationToken,
 }
 
@@ -32,9 +33,13 @@ impl ProxyState {
         let pac_script = generate_pac(&allowlist, &config.pac_proxy_addr());
 
         let server_tls_config = build_server_tls_config(&config.tls)?;
-        let (tls_config, acme_state) = match server_tls_config {
-            ServerTlsConfig::Manual(c) => (c, None),
-            ServerTlsConfig::Acme { config, state } => (config, Some(state)),
+        let (tls_config, acme_challenge_config, acme_state) = match server_tls_config {
+            ServerTlsConfig::Manual(c) => (c, None, None),
+            ServerTlsConfig::Acme {
+                config,
+                challenge_config,
+                state,
+            } => (config, Some(challenge_config), Some(state)),
         };
 
         let tls_acceptor = TlsAcceptor::from(tls_config);
@@ -69,6 +74,7 @@ impl ProxyState {
             allowlist,
             pac_script,
             tls_acceptor,
+            acme_challenge_config,
             cancel_token,
         })
     }
@@ -188,23 +194,79 @@ async fn handle_connection(
     }
 }
 
+/// Accept a TLS connection, dispatching ACME TLS-ALPN-01 challenge connections
+/// (RFC 8737) to `acme_challenge_config` and everything else through `tls_acceptor`'s
+/// mTLS config. Returns `None` once a challenge connection has been fully served (or
+/// the handshake failed), since neither case has an HTTP proxy connection to hand off.
+///
+/// Exposed (doc-hidden) so integration tests can exercise the ALPN dispatch directly
+/// without needing a live `AcmeState`, which would otherwise try to reach Let's Encrypt.
+#[doc(hidden)]
+pub async fn accept_tls_stream(
+    stream: TcpStream,
+    tls_acceptor: &TlsAcceptor,
+    acme_challenge_config: Option<Arc<rustls::ServerConfig>>,
+    peer_addr: std::net::SocketAddr,
+) -> Option<tokio_rustls::server::TlsStream<TcpStream>> {
+    match acme_challenge_config {
+        None => match tls_acceptor.accept(stream).await {
+            Ok(s) => Some(s),
+            Err(e) => {
+                warn!(client_addr = %peer_addr, error = %e, "TLS handshake failed");
+                None
+            }
+        },
+        Some(challenge_config) => {
+            let start =
+                match LazyConfigAcceptor::new(rustls::server::Acceptor::default(), stream).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        warn!(client_addr = %peer_addr, error = %e, "TLS ClientHello read failed");
+                        return None;
+                    }
+                };
+
+            if rustls_acme::is_tls_alpn_challenge(&start.client_hello()) {
+                // RFC 8737: the validator only needs to see the challenge cert and
+                // negotiated ALPN protocol; no application data is exchanged.
+                match start.into_stream(challenge_config).await {
+                    Ok(_) => info!(client_addr = %peer_addr, "Served ACME TLS-ALPN-01 challenge"),
+                    Err(e) => {
+                        warn!(client_addr = %peer_addr, error = %e, "ACME TLS-ALPN-01 handshake failed")
+                    }
+                }
+                return None;
+            }
+
+            match start.into_stream(tls_acceptor.config().clone()).await {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    warn!(client_addr = %peer_addr, error = %e, "TLS handshake failed");
+                    None
+                }
+            }
+        }
+    }
+}
+
 async fn handle_tls_connection(
     stream: TcpStream,
     peer_addr: std::net::SocketAddr,
     server: Arc<ProxyServer>,
 ) {
-    let tls_acceptor = {
+    let (tls_acceptor, acme_challenge_config) = {
         let state = server.state.load();
-        state.tls_acceptor.clone()
+        (
+            state.tls_acceptor.clone(),
+            state.acme_challenge_config.clone(),
+        )
     };
 
-    let tls_stream = match tls_acceptor.accept(stream).await {
-        Ok(s) => s,
-        Err(e) => {
-            warn!(client_addr = %peer_addr, error = %e, "TLS handshake failed");
-            return;
-        }
-    };
+    let tls_stream =
+        match accept_tls_stream(stream, &tls_acceptor, acme_challenge_config, peer_addr).await {
+            Some(s) => s,
+            None => return,
+        };
 
     // Extract client CN from TLS connection
     let client_cn = {
