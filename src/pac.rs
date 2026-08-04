@@ -15,7 +15,13 @@ pub fn generate_pac(allowlist: &Allowlist, proxy_addr: &str) -> String {
         match rule {
             DomainRule::Exact(domain) => {
                 lines.push(format!(
-                    "    if (host === \"{}\") return \"PROXY {}\";",
+                    // The proxy requires TLS (and mTLS) on this port in every mode, so
+                    // clients must wrap the connection to the proxy itself in TLS before
+                    // sending CONNECT. The plain "PROXY" PAC scheme means a cleartext
+                    // CONNECT, which the proxy rejects with 403 tls_required; "HTTPS" is
+                    // the PAC scheme (supported by Chrome and Firefox) that tells the
+                    // client to TLS-wrap its connection to the proxy first.
+                    "    if (host === \"{}\") return \"HTTPS {}\";",
                     escape_js(domain),
                     escaped_proxy
                 ));
@@ -23,7 +29,7 @@ pub fn generate_pac(allowlist: &Allowlist, proxy_addr: &str) -> String {
             DomainRule::Wildcard(suffix) => {
                 // suffix is ".crates.io", PAC uses dnsDomainIs with the suffix
                 lines.push(format!(
-                    "    if (dnsDomainIs(host, \"{}\")) return \"PROXY {}\";",
+                    "    if (dnsDomainIs(host, \"{}\")) return \"HTTPS {}\";",
                     escape_js(suffix),
                     escaped_proxy
                 ));
@@ -48,7 +54,7 @@ mod tests {
         let pac = generate_pac(&al, "proxy.internal:3128");
         assert!(pac.contains("host === \"github.com\""));
         assert!(pac.contains("dnsDomainIs(host, \".crates.io\")"));
-        assert!(pac.contains("PROXY proxy.internal:3128"));
+        assert!(pac.contains("HTTPS proxy.internal:3128"));
         assert!(pac.contains(PAC_FALLBACK_RULE));
     }
 
@@ -85,14 +91,14 @@ mod tests {
     fn pac_empty_allowlist_only_deny() {
         let al = Allowlist::new(&[]);
         let pac = generate_pac(&al, "proxy:3128");
-        // No PROXY entry for a real host, only the deny-all fallback
+        // No HTTPS entry for a real host, only the deny-all fallback
         assert!(!pac.contains("host ==="));
         assert!(!pac.contains("dnsDomainIs"));
     }
 
     #[test]
     fn pac_special_chars_in_proxy_addr_escaped() {
-        // Use a real domain so the proxy_addr appears in the generated PROXY line
+        // Use a real domain so the proxy_addr appears in the generated HTTPS line
         let domains: Vec<String> = vec!["example.com".to_string()];
         let al = Allowlist::new(&domains);
         let pac = generate_pac(&al, "proxy\"evil:3128");
